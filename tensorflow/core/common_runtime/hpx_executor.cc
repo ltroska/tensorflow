@@ -637,8 +637,8 @@ void HPXExecutorState::RunAsync(Executor::DoneCallback done) {
   comp_futures.reserve(num_outstanding_ops_);
   
   for (const Node* n : graph->nodes())
-    comp_futures.push_back(Schedule(n));
-    
+      comp_futures.push_back(Schedule(n));
+
   hpx::when_all(comp_futures).then(
   [this](hpx::future<std::vector<hpx::future<void> > >)
   {
@@ -699,7 +699,7 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors, int64 sch
     nodestats::SetScheduled(stats, scheduled_usec);
     nodestats::SetAllStart(stats);
   }
-
+                
   if (vlog_) {
     VLOG(1) << "Process node: " << id << " step " << params.step_id << " "
             << SummarizeNodeDef(node->def());
@@ -781,6 +781,8 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors, int64 sch
       //scheduled_usec = nodestats::NowInUsec();
     }
   }
+  
+  num_outstanding_ops_--;
 }
 
 Status HPXExecutorState::PrepareInputs(const NodeItem& item, Entry* first_input,
@@ -1039,23 +1041,27 @@ void HPXExecutorState::PropagateOutputs(const NodeItem& node_item,
     // This is the case when node is not Enter, Exit, or NextIteration.
     unsigned src_id = node->id();
     for (const Edge* e : node->out_edges()) {
-      if (!e->IsControlEdge())
-      {
-        unsigned src_slot = e->src_output();
-        unsigned dst_id = e->dst()->id();
-        unsigned dst_slot = e->dst_input();
-        
+      unsigned dst_id = e->dst()->id();
 
-        std::string key =
-          std::to_string(src_id) + ";" + std::to_string(src_slot) + ";"
-            + std::to_string(dst_id) + ";" + std::to_string(dst_slot);
-            
-        if (sync_map_.count(key) == 0)
+      std::string key = std::to_string(step_id_) + ";"
+        + std::to_string(src_id) + ";" + std::to_string(dst_id);
+          
+      if (sync_map_.count(key) == 0)
+      {
+        if (e->IsControlEdge())
         {
-  sync_map_[key].set_value(outputs[src_slot]);
-      
-        } 
+          sync_map_[key].set_value(Entry());
         }
+        else
+        {
+          unsigned src_slot = e->src_output();
+          unsigned dst_slot = e->dst_input();
+          
+          key += ";" + std::to_string(src_slot) + ";" + std::to_string(dst_slot);
+          
+          sync_map_[key].set_value(outputs[src_slot]);      
+        }
+      } 
     }
   }
 }
@@ -1069,18 +1075,24 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node) {
   std::vector<hpx::lcos::future<Entry> > input_futures(node->num_inputs());
   
   unsigned dst_id = node->id();
+  unsigned last_used = node->num_inputs();
   for (const Edge* e : node->in_edges())
   {        
-    if (!e->IsControlEdge())
+    unsigned src_id = e->src()->id();
+    std::string key = std::to_string(step_id_) + ";" +
+      std::to_string(src_id) + ";" + std::to_string(dst_id);
+      
+    if (e->IsControlEdge())
     {
-      unsigned src_id = e->src()->id();
+    //  input_futures[--last_used] = sync_map_[key].get_future(); 
+    }
+    else
+    {
       unsigned src_slot = e->src_output();
       unsigned dst_slot = e->dst_input();
-      std::string key =
-        std::to_string(src_id) + ";" + std::to_string(src_slot) + ";"
-          + std::to_string(dst_id) + ";" + std::to_string(dst_slot);
-        
-      input_futures[dst_slot] = sync_map_[key].get_future();
+                
+      key += ";" + std::to_string(src_slot) + ";" + std::to_string(dst_slot);
+      input_futures[dst_slot] = sync_map_[key].get_future();      
     }
     
   }
@@ -1123,7 +1135,7 @@ void HPXExecutorState::Finish() {
 }
 
 void HPXExecutorImpl::RunAsync(const Args& args, DoneCallback done) {
-
+  
   auto state = new HPXExecutorState(args, this);
   
   //state->RunAsync(done);

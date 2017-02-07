@@ -23,6 +23,8 @@ limitations under the License.
 #include <unordered_set>
 #include <vector>
 
+#include "tensorflow/core/common_runtime/hpx_global_runtime.h"
+
 #include "tensorflow/core/common_runtime/costmodel_manager.h"
 #include "tensorflow/core/common_runtime/debugger_state_interface.h"
 #include "tensorflow/core/common_runtime/device_mgr.h"
@@ -101,7 +103,9 @@ class DirectSession : public Session {
     cost_model_manager_.ExportCostModels(cost_models);
   }
 
- private:
+  private:
+  manage_global_runtime* init_ = nullptr;
+ 
   typedef DirectSession ME;
 
   // We create one executor and its dependent library runtime for

@@ -12,7 +12,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Store the command line arguments in global variables to make them available
 // to the startup code.
-
+/*
 #if defined(linux) || defined(__linux) || defined(__linux__)
 
 int __argc = 0;
@@ -45,7 +45,7 @@ inline int get_arraylen(char** argv)
 int __argc = get_arraylen(*_NSGetArgv());
 char** __argv = *_NSGetArgv();
 
-#endif
+#endif*/
 
 ///////////////////////////////////////////////////////////////////////////////
 // This class demonstrates how to initialize a console instance of HPX

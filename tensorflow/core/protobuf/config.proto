@@ -243,6 +243,8 @@ message ConfigProto {
 
   // Options that apply when this session uses the distributed runtime.
   RPCOptions rpc_options = 13;
+
+	bool with_hpx = 15;
 };
 
 // Options for a single Run() call.

@@ -110,14 +110,14 @@ Status HPXGraphRunner::Run(Graph* graph, FunctionLibraryRuntime* function_librar
                         Env* env, const NamedTensorList& inputs,
                         const std::vector<string>& output_names,
                         std::vector<Tensor>* outputs) {
+  
+  manage_global_runtime init_;
+
   // TODO(vrv): Instead of copying the entire graph, consider modifying
   // the existing graph, and then removing those removed edges.
   // prior to returning.
   std::unique_ptr<Graph> graph_to_run(new Graph(graph->op_registry()));
   CopyGraph(*graph, graph_to_run.get());
-
-  manage_global_runtime init_;
-
 
   std::unique_ptr<Device> device = GetCPUDevice(env);
 

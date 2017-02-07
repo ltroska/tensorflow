@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/core/common_runtime/executor.h"
+#include "tensorflow/core/common_runtime/hpx_executor.h"
 
 #include <hpx/util/unwrapped.hpp>
 #include <hpx/lcos/when_all.hpp>
@@ -29,7 +29,7 @@ limitations under the License.
 #include <vector>
 
 #include "tensorflow/core/common_runtime/costmodel_manager.h"
-#include "tensorflow/core/common_runtime/pending_counts.h"
+//#include "tensorflow/core/common_runtime/pending_counts.h"
 #include "tensorflow/core/common_runtime/step_stats_collector.h"
 #include "tensorflow/core/framework/allocation_description.pb.h"
 #include "tensorflow/core/framework/allocator.h"
@@ -229,7 +229,6 @@ class HPXExecutorImpl : public Executor {
       : params_(p), graph_(g) {
     CHECK(p.create_kernel != nullptr);
     CHECK(p.delete_kernel != nullptr);
-
   }
 
   ~HPXExecutorImpl() override {
@@ -741,6 +740,7 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors, int64 sch
     OpKernel* op_kernel = item.kernel;
     params.op_kernel = op_kernel;
     //params.frame_iter = FrameAndIter(input_frame->frame_id, input_iter);
+    params.frame_iter = FrameAndIter(0, 0);
     
    // params.is_input_dead = is_input_dead;
     params.output_attr_array =
@@ -1130,8 +1130,7 @@ void HPXExecutorImpl::RunAsync(const Args& args, DoneCallback done) {
   
   auto f = std::bind(&HPXExecutorState::RunAsync, state, done);
     
-  hpx::threads::run_as_hpx_thread(f);    
-    
+  hpx::threads::run_as_hpx_thread(f);        
     // Wait for hpx::finalize being called.
 }
 }  // end namespace

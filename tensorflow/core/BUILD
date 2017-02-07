@@ -1485,30 +1485,14 @@ tf_cuda_library(
 )
 
 cc_library(
-	name = "boost",
-	srcs = glob(["boost/lib/**/*.so*", "boost/lib/**/*.a*"], exclude = ["boost/lib/**/libboost_python*"]),
-    	hdrs = glob(["boost/include/**/*"]),
-	copts = ["-Itensorflow/core/boost/include"],
-)
-
-cc_library(
-    	name = "hpx",
-	srcs = glob(["hpx/lib/**/*.so*", "hpx/lib/**/*.a*"]),
-    	hdrs = glob(["hpx/include/**/*"]),
-	copts = ["-Itensorflow/core/hpx/include", "-Itensorflow/core/boost/include"],
-	deps = ["boost"],
-	defines = ["HPX_NO_VERSION_CHECK"],
-)
-
-cc_library(
 	name = "core_hpx",
 	srcs = glob(["common_runtime/hpx*"]),
 	hdrs = glob(["common_runtime/hpx*"]),
-	copts = ["-Itensorflow/core/hpx/include"] + ["-Itensorflow/core/boost/include"] + ["-fexceptions"],
+	copts = ["-Ithird_party/hpx/hpx/include"] + ["-Ithird_party/boost/boost/include"] + ["-fexceptions"],
 	deps = [
-		"boost",
-		"hpx",
-		"core_cpu_internal",
+		":core_cpu_internal",
+		"//third_party/boost",
+		"//third_party/hpx",
 		],
 )
 
@@ -1530,13 +1514,14 @@ tf_cuda_library(
     name = "direct_session_internal",
     srcs = ["common_runtime/direct_session.cc"],
     hdrs = ["common_runtime/direct_session.h"],
-    copts = tf_copts(),
+    copts = tf_copts() + ["-Ithird_party/hpx/hpx/include"] + ["-Ithird_party/boost/boost/include"] + ["-fexceptions"],
     cuda_deps = [
         ":gpu_tracer",
     ],
     linkstatic = 1,
     deps = [
         ":core_cpu_internal",
+	":core_hpx",
         ":framework",
         ":lib",
         ":lib_internal",

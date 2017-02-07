@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef HPX_GRAPH_RUNNER_H_
-#define HPX_GRAPH_RUNNER_H_ 
+#ifndef TENSORFLOW_COMMOM_RUNTIME_HPX_GRAPH_RUNNER_H_
+#define TENSORFLOW_COMMOM_RUNTIME_HPX_GRAPH_RUNNER_H_ 
 
 #include <memory>
 #include <string>

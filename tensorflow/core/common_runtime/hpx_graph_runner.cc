@@ -168,7 +168,7 @@ Status HPXGraphRunner::Run(Graph* graph, FunctionLibraryRuntime* function_librar
   params.delete_kernel = [](OpKernel* kernel) { delete kernel; };
 
   Executor* executor;
-  TF_RETURN_IF_ERROR(NewLocalExecutor(params, g, &executor));
+  TF_RETURN_IF_ERROR(NewLocalHPXExecutor(params, g, &executor));
   std::unique_ptr<Executor> executor_unref(executor);
 
   Executor::Args args;

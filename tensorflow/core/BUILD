@@ -1451,6 +1451,7 @@ tf_cuda_library(
             "common_runtime/direct_session.cc",
             "common_runtime/direct_session.h",
             "common_runtime/gpu_device_context.h",
+	    "common_runtime/hpx*",
         ],
     ),
     hdrs = glob(
@@ -1463,6 +1464,7 @@ tf_cuda_library(
             "**/*test*",
             "common_runtime/direct_session.h",
             "common_runtime/gpu_device_context.h",
+	    "common_runtime/hpx*",
         ],
     ),
     copts = tf_copts(),
@@ -1480,6 +1482,34 @@ tf_cuda_library(
         "//tensorflow/core/kernels:required",
     ] + tf_additional_core_deps(),
     alwayslink = 1,
+)
+
+cc_library(
+	name = "boost",
+	srcs = glob(["boost/lib/**/*.so*", "boost/lib/**/*.a*"], exclude = ["boost/lib/**/libboost_python*"]),
+    	hdrs = glob(["boost/include/**/*"]),
+	copts = ["-Itensorflow/core/boost/include"],
+)
+
+cc_library(
+    	name = "hpx",
+	srcs = glob(["hpx/lib/**/*.so*", "hpx/lib/**/*.a*"]),
+    	hdrs = glob(["hpx/include/**/*"]),
+	copts = ["-Itensorflow/core/hpx/include", "-Itensorflow/core/boost/include"],
+	deps = ["boost"],
+	defines = ["HPX_NO_VERSION_CHECK"],
+)
+
+cc_library(
+	name = "core_hpx",
+	srcs = glob(["common_runtime/hpx*"]),
+	hdrs = glob(["common_runtime/hpx*"]),
+	copts = ["-Itensorflow/core/hpx/include"] + ["-Itensorflow/core/boost/include"] + ["-fexceptions"],
+	deps = [
+		"boost",
+		"hpx",
+		"core_cpu_internal",
+		],
 )
 
 # This library is deprecated and no longer publicly available.

@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/core/common_runtime/hpx_executor.h"
+#include "tensorflow/hpx/core/hpx_executor.h"
 
 #include <hpx/util/unwrapped.hpp>
 #include <hpx/lcos/when_all.hpp>
@@ -29,7 +29,6 @@ limitations under the License.
 #include <vector>
 
 #include "tensorflow/core/common_runtime/costmodel_manager.h"
-//#include "tensorflow/core/common_runtime/pending_counts.h"
 #include "tensorflow/core/common_runtime/step_stats_collector.h"
 #include "tensorflow/core/framework/allocation_description.pb.h"
 #include "tensorflow/core/framework/allocator.h"
@@ -323,7 +322,7 @@ Status HPXExecutorImpl::Initialize() {
     item->kernel_is_async = (item->kernel->AsAsync() != nullptr);
     item->is_merge = IsMerge(n);
   }
-
+  
   return SetAllocAttrs();
 }
 
@@ -1135,15 +1134,11 @@ void HPXExecutorState::Finish() {
 }
 
 void HPXExecutorImpl::RunAsync(const Args& args, DoneCallback done) {
-  
   auto state = new HPXExecutorState(args, this);
-  
-  //state->RunAsync(done);
   
   auto f = std::bind(&HPXExecutorState::RunAsync, state, done);
     
   hpx::threads::run_as_hpx_thread(f);        
-    // Wait for hpx::finalize being called.
 }
 }  // end namespace
 

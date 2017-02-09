@@ -1,23 +1,12 @@
-cc_binary(
-    name = "eigenvector_example",
-    srcs = ["eigenvector_example.cc"],
-    deps = [
-        "//tensorflow/cc:cc_ops",
-        "//tensorflow/core:all_kernels",
-        "//tensorflow/core:core_cpu",
-        "//tensorflow/core:framework",
-        "//tensorflow/core:lib",
-        "//tensorflow/core:protos_all_cc",
-	"//tensorflow/core:tensorflow",
-        "//tensorflow/cc:scope",
-	"//tensorflow/core:core_cpu_internal",
-	"//tensorflow/core:core_hpx",
-    ],
+load(
+    "@local_config_hpx//hpx:build_defs.bzl",
+    "if_hpx_is_configured",
 )
 
+if_hpx_is_configured(
 cc_binary(
-    name = "load_graph_example",
-    srcs = ["load_graph_example.cc"],
+    name = "eigenvector",
+    srcs = ["eigenvector.cc"],
     deps = [
         "//tensorflow/cc:cc_ops",
         "//tensorflow/core:all_kernels",
@@ -25,9 +14,27 @@ cc_binary(
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
-	"//tensorflow/core:tensorflow",
+        "//tensorflow/core:tensorflow",
         "//tensorflow/cc:scope",
-	"//tensorflow/core:core_cpu_internal",
-	"//tensorflow/core:core_hpx",
+	    "//tensorflow/hpx/core:core_hpx",
     ],
+)
+)
+
+if_hpx_is_configured(
+cc_binary(
+    name = "load_graph",
+    srcs = ["load_graph.cc"],
+    deps = [
+        "//tensorflow/cc:cc_ops",
+        "//tensorflow/core:all_kernels",
+        "//tensorflow/core:core_cpu",
+        "//tensorflow/core:framework",
+        "//tensorflow/core:lib",
+        "//tensorflow/core:protos_all_cc",
+	    "//tensorflow/core:tensorflow",
+        "//tensorflow/cc:scope",
+	    "//tensorflow/hpx/core:core_hpx",
+    ],
+)
 )

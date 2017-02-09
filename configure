@@ -288,14 +288,21 @@ while [ "$TF_NEED_CUDA" == "" ]; do
   esac
 done
 
+## Set up HPX-related environment settings
+
+while [ "$TF_NEED_HPX" == "" ]; do
+  read -p "Do you wish to build TensorFlow with HPX support? [y/N] " INPUT
+  case $INPUT in
+    [Yy]* ) echo "HPX support will be enabled for TensorFlow"; TF_NEED_HPX=1;;
+    [Nn]* ) echo "No HPX support will be enabled for TensorFlow"; TF_NEED_HPX=0;;
+    "" ) echo "No HPX support will be enabled for TensorFlow"; TF_NEED_HPX=0;;
+    * ) echo "Invalid selection: " $INPUT;;
+  esac
+done
+
 export TF_NEED_CUDA
 export TF_NEED_OPENCL
-if [[ "$TF_NEED_CUDA" == "0" ]] && [[ "$TF_NEED_OPENCL" == "0" ]]; then
-  echo "Configuration finished"
-  bazel_clean_and_fetch
-  exit
-fi
-
+export TF_NEED_HPX
 if [ "$TF_NEED_CUDA" == "1" ]; then
 # Set up which gcc nvcc should use as the host compiler
 # No need to set this on Windows
@@ -579,6 +586,61 @@ while true; do
 done
 
 # end of if "$TF_NEED_OPENCL" == "1"
+fi
+
+if [ "$TF_NEED_HPX" == "1" ]; then
+
+while true; do
+  # Point to HPX root
+  if [ -z "$HPX_PATH" ]; then
+    default_hpx_path=/opt/hpx
+    read -p "Please specify the location where HPX is installed. [Default is $default_hpx_path]: " HPX_PATH
+    fromuser="1"
+    if [ -z "$HPX_PATH" ]; then
+      HPX_PATH=$default_hpx_path
+    fi
+  fi
+
+
+  if [ -e "${HPX_PATH}/" ]; then
+    export HPX_PATH
+    break
+  fi
+  echo "Invalid HPX path. ${HPX_PATH}/ cannot be found"
+
+  if [ -z "$fromuser" ]; then
+    exit 1
+  fi
+  # Retry
+  HPX_PATH=""
+done
+
+while true; do
+  # Point to Boost root
+  if [ -z "$BOOST_PATH" ]; then
+    default_boost_path=/opt/boost
+    read -p "Please specify the location where Boost is installed. [Default is $default_boost_path]: " BOOST_PATH
+    fromuser="1"
+    if [ -z "$BOOST_PATH" ]; then
+      BOOST_PATH=$default_boost_path
+    fi
+  fi
+
+
+  if [ -e "${BOOST_PATH}/" ]; then
+    export BOOST_PATH
+    break
+  fi
+  echo "Invalid Boost path. ${BOOST_PATH}/ cannot be found"
+
+  if [ -z "$fromuser" ]; then
+    exit 1
+  fi
+  # Retry
+  BOOST_PATH=""
+done
+
+# end of if "$TF_NEED_HPX" == "1"
 fi
 
 bazel_clean_and_fetch

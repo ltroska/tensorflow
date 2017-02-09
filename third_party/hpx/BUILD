@@ -1,16 +1,16 @@
-# Description
-#	HPX is a C++ Standards Library for Concurrency and Parallelism.
+package(default_visibility = ["//visibility:public"])
 
-licenses(["notice"]) # Boost License
+licenses(["notice"])  # Boost
 
-exports_files(["LICENSE"])
-
-cc_library(
-    	name = "hpx",
-	srcs = glob(["hpx/lib/**/*.so*"]),
-    	hdrs = glob(["hpx/include/**/*"]),
-	copts = ["-Ithird_party/hpx/hpx/include", "-Ithird_party/boost/boost/include"],
-	deps = ["//third_party/boost"],
-	defines = ["HPX_NO_VERSION_CHECK"],
-    	visibility = ["//visibility:public"],
+filegroup(
+    name = "all_files",
+    srcs = glob(
+        ["**/*"],
+        exclude = [
+            "**/METADATA",
+            "**/OWNERS",
+        ],
+    ),
+    visibility = ["//tensorflow:__subpackages__"],
 )
+

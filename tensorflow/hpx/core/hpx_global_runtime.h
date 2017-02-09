@@ -1,5 +1,5 @@
-#ifndef TENSORFLOW_COMMON_RUNTIME_HPX_GLOBAL_RUNTIME_H_
-#define TENSORFLOW_COMMON_RUNTIME_HPX_GLOBAL_RUNTIME_H_
+#ifndef TENSORFLOW_HPX_CORE_HPX_GLOBAL_RUNTIME_H_
+#define TENSORFLOW_HPX_CORE_HPX_GLOBAL_RUNTIME_H_
 
 #include <hpx/hpx.hpp>
 #include <hpx/include/run_as.hpp>
@@ -47,14 +47,6 @@ char** __argv = *_NSGetArgv();
 
 #endif*/
 
-///////////////////////////////////////////////////////////////////////////////
-// This class demonstrates how to initialize a console instance of HPX
-// (locality 0). In order to create an HPX instance which connects to a running
-// HPX application two changes have to be made:
-//
-//  - replace hpx::runtime_mode_console with hpx::runtime_mode_connect
-//  - replace hpx::finalize() with hpx::disconnect()
-//
 struct manage_global_runtime
 {
     manage_global_runtime()
@@ -63,15 +55,14 @@ struct manage_global_runtime
 #if defined(HPX_WINDOWS)
         hpx::detail::init_winsocket();
 #endif
-
+ 
         std::vector<std::string> const cfg = {
             // make sure hpx_main is always executed
             "hpx.run_hpx_main!=1",
             // allow for unknown command line options
             "hpx.commandline.allow_unknown!=1",
             // disable HPX' short options
-            "hpx.commandline.aliasing!=0"
-            
+            "hpx.commandline.aliasing!=0"            
         };
 
         using hpx::util::placeholders::_1;
@@ -103,9 +94,8 @@ struct manage_global_runtime
             rts_ = nullptr;               // reset pointer
         }
 
-        cond_.notify_one();     // signal exit
+        cond_.notify_one();
 
-        // wait for the runtime to exit
         hpx::stop();
     }
 
@@ -123,7 +113,6 @@ protected:
     // Main HPX thread, does nothing but wait for the application to exit
     int hpx_main(int argc, char* argv[])
     {
-        // Store a pointer to the runtime here.
         rts_ = hpx::get_runtime_ptr();
 
         // Signal to constructor that thread has started running.
@@ -134,9 +123,6 @@ protected:
 
         startup_cond_.notify_one();
 
-        // Here other HPX specific functionality could be invoked...
-
-        // Now, wait for destructor to be called.
         {
             std::unique_lock<hpx::lcos::local::spinlock> lk(mtx_);
             if (rts_ != nullptr)
@@ -158,4 +144,4 @@ private:
     hpx::runtime* rts_;
 };
 
-#endif
+#endif // TENSORFLOW_HPX_CORE_HPX_GLOBAL_RUNTIME_H_

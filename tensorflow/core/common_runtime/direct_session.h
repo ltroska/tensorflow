@@ -23,7 +23,9 @@ limitations under the License.
 #include <unordered_set>
 #include <vector>
 
-#include "tensorflow/core/common_runtime/hpx_global_runtime.h"
+#if HAVE_HPX
+#include "tensorflow/hpx/core/hpx_global_runtime.h"
+#endif
 
 #include "tensorflow/core/common_runtime/costmodel_manager.h"
 #include "tensorflow/core/common_runtime/debugger_state_interface.h"
@@ -104,7 +106,9 @@ class DirectSession : public Session {
   }
 
   private:
+  #if defined(HAVE_HPX)
   manage_global_runtime* init_ = nullptr;
+  #endif
  
   typedef DirectSession ME;
 

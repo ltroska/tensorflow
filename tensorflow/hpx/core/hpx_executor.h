@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_COMMON_RUNTIME_HPX_EXECUTOR_H_
-#define TENSORFLOW_COMMON_RUNTIME_HPX_EXECUTOR_H_
+#ifndef TENSORFLOW_HPX_CORE_HPX_EXECUTOR_H_
+#define TENSORFLOW_HPX_CORE_HPX_EXECUTOR_H_
 
 #include "tensorflow/core/common_runtime/executor.h"
 
@@ -25,4 +25,4 @@ namespace tensorflow {
 
 }  // end namespace tensorflow
 
-#endif  // TENSORFLOW_COMMON_RUNTIME_EXECUTOR_H_
+#endif  // TENSORFLOW_HPX_CORE_HPX_EXECUTOR_H_

@@ -19,6 +19,10 @@ load(
     "if_cuda",
     "cuda_default_copts"
 )
+load(
+    "@local_config_hpx//hpx:build_defs.bzl",
+    "if_hpx_is_configured",
+)
 
 load(
     "//third_party/mkl:build_defs.bzl",
@@ -484,6 +488,37 @@ def tf_cuda_library(deps=None, cuda_deps=None, copts=None, **kwargs):
       ]),
       copts = copts + if_cuda(["-DGOOGLE_CUDA=1"]) + if_mkl(["-DINTEL_MKL=1"]),
       **kwargs)
+
+def tf_hpx_library(deps=None, hpx_deps=None, copts=None, **kwargs):
+  if not deps:
+    deps = []
+  if not hpx_deps:
+    hpx_deps = []
+  if not copts:
+    copts = []
+
+  native.cc_library(
+      deps = deps + if_hpx_is_configured(hpx_deps + [
+          "//tensorflow/hpx/core:core_hpx"
+      ]),
+      copts = copts + if_hpx_is_configured(["-DHAVE_HPX=1"]),
+      **kwargs)
+
+def tf_hpx_and_cuda_library(deps=None, hpx_deps=None, cuda_deps=None, copts=None, **kwargs):
+  if not deps:
+    deps = []
+  if not hpx_deps:
+    hpx_deps = []
+  if not cuda_deps:
+    cuda_deps = []
+  if not copts:
+    copts = []
+
+  deps = deps + if_hpx_is_configured(hpx_deps + ["//tensorflow/hpx/core:core_hpx"])
+  copts = copts + if_hpx_is_configured(["-DHAVE_HPX=1", "-fexceptions",])
+
+  tf_cuda_library(deps=deps, cuda_deps=cuda_deps, copts = copts, **kwargs)
+
 
 def tf_kernel_library(name, prefix=None, srcs=None, gpu_srcs=None, hdrs=None,
                       deps=None, alwayslink=1, copts=tf_copts(), **kwargs):

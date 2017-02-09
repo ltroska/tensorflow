@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_COMMOM_RUNTIME_HPX_GRAPH_RUNNER_H_
-#define TENSORFLOW_COMMOM_RUNTIME_HPX_GRAPH_RUNNER_H_ 
+#ifndef TENSORFLOW_HPX_CORE_HPX_GRAPH_RUNNER_H_
+#define TENSORFLOW_HPX_CORE_HPX_GRAPH_RUNNER_H_ 
 
 #include <memory>
 #include <string>
@@ -58,5 +58,5 @@ class HPXGraphRunner {
 
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_CORE_COMMON_RUNTIME_GRAPH_RUNNER_H_
+#endif  // TENSORFLOW_HPX_CORE_HPX_GRAPH_RUNNER_H_
 

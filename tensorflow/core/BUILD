@@ -71,6 +71,7 @@ load(
     "tf_cc_test",
     "tf_cc_tests",
     "tf_cuda_library",
+    "tf_hpx_and_cuda_library",
     "tf_gen_op_libs",
     "tf_generate_proto_text_sources",
     "tf_genrule_cmd_append_to_srcs",
@@ -1451,7 +1452,6 @@ tf_cuda_library(
             "common_runtime/direct_session.cc",
             "common_runtime/direct_session.h",
             "common_runtime/gpu_device_context.h",
-	    "common_runtime/hpx*",
         ],
     ),
     hdrs = glob(
@@ -1464,7 +1464,6 @@ tf_cuda_library(
             "**/*test*",
             "common_runtime/direct_session.h",
             "common_runtime/gpu_device_context.h",
-	    "common_runtime/hpx*",
         ],
     ),
     copts = tf_copts(),
@@ -1484,18 +1483,6 @@ tf_cuda_library(
     alwayslink = 1,
 )
 
-cc_library(
-	name = "core_hpx",
-	srcs = glob(["common_runtime/hpx*"]),
-	hdrs = glob(["common_runtime/hpx*"]),
-	copts = ["-Ithird_party/hpx/hpx/include"] + ["-Ithird_party/boost/boost/include"] + ["-fexceptions"],
-	deps = [
-		":core_cpu_internal",
-		"//third_party/boost",
-		"//third_party/hpx",
-		],
-)
-
 # This library is deprecated and no longer publicly available.
 # Do not add more uses of it.
 cc_library(
@@ -1510,18 +1497,17 @@ cc_library(
     deps = [":lib_internal"],
 )
 
-tf_cuda_library(
+tf_hpx_and_cuda_library(
     name = "direct_session_internal",
     srcs = ["common_runtime/direct_session.cc"],
     hdrs = ["common_runtime/direct_session.h"],
-    copts = tf_copts() + ["-Ithird_party/hpx/hpx/include"] + ["-Ithird_party/boost/boost/include"] + ["-fexceptions"],
+    copts = tf_copts(),
     cuda_deps = [
         ":gpu_tracer",
     ],
     linkstatic = 1,
     deps = [
         ":core_cpu_internal",
-	":core_hpx",
         ":framework",
         ":lib",
         ":lib_internal",

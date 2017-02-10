@@ -1,4 +1,4 @@
-licenses(["notice"])  # Boost
+licenses(["notice"])  # Boost license
 
 package(default_visibility = ["//visibility:public"])
 

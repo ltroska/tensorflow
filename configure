@@ -303,6 +303,12 @@ done
 export TF_NEED_CUDA
 export TF_NEED_OPENCL
 export TF_NEED_HPX
+if [[ "$TF_NEED_CUDA" == "0" ]] && [[ "$TF_NEED_OPENCL" == "0" ]] && [[ "$TF_NEED_HPX" == "0" ]]; then
+  echo "Configuration finished"
+  bazel_clean_and_fetch
+  exit
+fi
+
 if [ "$TF_NEED_CUDA" == "1" ]; then
 # Set up which gcc nvcc should use as the host compiler
 # No need to set this on Windows

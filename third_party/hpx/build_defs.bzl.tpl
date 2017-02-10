@@ -6,7 +6,6 @@ def if_hpx(if_true, if_false = []):
     with HPX enabled.  Otherwise, the select statement evaluates to if_false.
 
     """
-    print(if_true)
     return select({
         "@local_config_hpx//hpx:using_hpx": if_true,
         "//conditions:default": if_false
@@ -15,8 +14,11 @@ def if_hpx(if_true, if_false = []):
 def hpx_is_configured():
     return %{hpx_is_configured}
 
+
 def if_hpx_is_configured(x):
     if hpx_is_configured():
         return x
     return []
+
+        
 

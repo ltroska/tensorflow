@@ -21,7 +21,7 @@ load(
 )
 load(
     "@local_config_hpx//hpx:build_defs.bzl",
-    "if_hpx_is_configured",
+    "if_hpx",
 )
 
 load(
@@ -498,10 +498,10 @@ def tf_hpx_library(deps=None, hpx_deps=None, copts=None, **kwargs):
     copts = []
 
   native.cc_library(
-      deps = deps + if_hpx_is_configured(hpx_deps + [
+      deps = deps + if_hpx(hpx_deps + [
           "//tensorflow/hpx/core:core_hpx"
       ]),
-      copts = copts + if_hpx_is_configured(["-DHAVE_HPX=1"]),
+      copts = copts + if_hpx(["-DHAVE_HPX=1"]),
       **kwargs)
 
 def tf_hpx_and_cuda_library(deps=None, hpx_deps=None, cuda_deps=None, copts=None, **kwargs):
@@ -514,8 +514,8 @@ def tf_hpx_and_cuda_library(deps=None, hpx_deps=None, cuda_deps=None, copts=None
   if not copts:
     copts = []
 
-  deps = deps + if_hpx_is_configured(hpx_deps + ["//tensorflow/hpx/core:core_hpx"])
-  copts = copts + if_hpx_is_configured(["-DHAVE_HPX=1", "-fexceptions",])
+  deps = deps + if_hpx(hpx_deps + ["//tensorflow/hpx/core:core_hpx"])
+  copts = copts + if_hpx(["-DHAVE_HPX=1", "-fexceptions",])
 
   tf_cuda_library(deps=deps, cuda_deps=cuda_deps, copts = copts, **kwargs)
 

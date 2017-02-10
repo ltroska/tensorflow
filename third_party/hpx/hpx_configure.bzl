@@ -115,67 +115,36 @@ def _file(repository_ctx, label):
       Label("//third_party/%s" % label),
       {})
 
-_DUMMY_CROSSTOOL_BZL_FILE = """
-def error_hpx_disabled():
-  fail("ERROR: Building with --config=hpx but TensorFlow is not configured " +
-       "to build with hpx support. Please re-run ./configure and enter 'Y' " +
-       "at the prompt to build with hpx support.")
-
-  native.genrule(
-      name = "error_gen_crosstool",
-      outs = ["CROSSTOOL"],
-      cmd = "echo 'Should not be run.' && exit 1",
-  )
-
-  native.filegroup(
-      name = "crosstool",
-      srcs = [":CROSSTOOL"],
-      output_licenses = ["unencumbered"],
-  )
-"""
-
-
-_DUMMY_CROSSTOOL_BUILD_FILE = """
-load("//crosstool:error_hpx_disabled.bzl", "error_hpx_disabled")
-
-error_hpx_disabled()
-"""
-
 def _create_dummy_repository(repository_ctx):
-  # Set up BUILD file for hpx/.
+  # Set up BUILD file for hpx
   _tpl(repository_ctx, "hpx:build_defs.bzl", {"%{hpx_is_configured}": "False"})
   _tpl(repository_ctx, "hpx:BUILD")
   _file(repository_ctx, "hpx:LICENSE")
   _tpl(repository_ctx, "hpx:platform.bzl")
 
 
-  # If hpx_configure is not configured to build with hpx support, and the user
-  # attempts to build with --config=hpx, add a dummy build rule to intercept
-  # this and fail with an actionable error message.
-  repository_ctx.file("crosstool/error_hpx_disabled.bzl",
-                      _DUMMY_CROSSTOOL_BZL_FILE)
-  repository_ctx.file("crosstool/BUILD", _DUMMY_CROSSTOOL_BUILD_FILE)
-
-
 def _hpx_autoconf_imp(repository_ctx):
   """Implementation of the hpx_autoconf rule."""
-  # copy template files
-  _tpl(repository_ctx, "hpx:build_defs.bzl", {"%{hpx_is_configured}": "True"})
-  _tpl(repository_ctx, "hpx:BUILD")
-  _tpl(repository_ctx, "hpx:platform.bzl")
-  _file(repository_ctx, "hpx:LICENSE")
+  if not _enable_hpx(repository_ctx):
+    _create_dummy_repository(repository_ctx)
+  else:
+    # copy template files
+    _tpl(repository_ctx, "hpx:build_defs.bzl", {"%{hpx_is_configured}": "True"})
+    _tpl(repository_ctx, "hpx:BUILD")
+    _tpl(repository_ctx, "hpx:platform.bzl")
+    _file(repository_ctx, "hpx:LICENSE")
 
-  hpx_root = find_hpx_root(repository_ctx);
-  _check_dir(repository_ctx, hpx_root)
+    hpx_root = find_hpx_root(repository_ctx);
+    _check_dir(repository_ctx, hpx_root)
 
-  boost_root = find_boost_root(repository_ctx);
-  _check_dir(repository_ctx, boost_root)
+    boost_root = find_boost_root(repository_ctx);
+    _check_dir(repository_ctx, boost_root)
 
-  # symlink libraries
-  _symlink_dir(repository_ctx, hpx_root + "/lib", "hpx/hpx/lib")
-  _symlink_dir(repository_ctx, hpx_root + "/include", "hpx/hpx/include")
-  _symlink_dir(repository_ctx, boost_root + "/lib", "hpx/boost/lib")
-  _symlink_dir(repository_ctx, boost_root + "/include", "hpx/boost/include")
+    # symlink libraries
+    _symlink_dir(repository_ctx, hpx_root + "/lib", "hpx/hpx/lib")
+    _symlink_dir(repository_ctx, hpx_root + "/include", "hpx/hpx/include")
+    _symlink_dir(repository_ctx, boost_root + "/lib", "hpx/boost/lib")
+    _symlink_dir(repository_ctx, boost_root + "/include", "hpx/boost/include")
 
 hpx_configure = repository_rule(
   implementation = _hpx_autoconf_imp,

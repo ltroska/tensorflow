@@ -534,7 +534,7 @@ class HPXExecutorState {
   Executor::Args::Runner runner_;
   bool sync_on_finish_;
   
-  std::vector<const Node*> iteration_nodes_; 
+  std::vector<std::vector<const Node*> > iteration_nodes_; 
 
   // Owned.
 
@@ -551,7 +551,7 @@ class HPXExecutorState {
   Status status_ GUARDED_BY(mu_);
 
   // Process a ready node in current thread.
-  void Process(const Node* node, Entry* inputs, const int64 iter_id, int64 scheduled_usec);
+  void Process(const Node* node, Entry* inputs, int64 iter_id, int64 scheduled_usec);
 
   // Before invoking item->kernel, fills in its "inputs".
   Status PrepareInputs(const NodeItem& item, Entry* first_input,
@@ -564,11 +564,16 @@ class HPXExecutorState {
   Status ProcessOutputs(const NodeItem& item, OpKernelContext* ctx,
                         EntryVector* outputs, NodeExecStats* stats);
 
+
+
   // After processing the outputs, propagates the outputs to their dsts.
-  void PropagateOutputs(const NodeItem& node_item,
-                        const EntryVector& outputs, int64 iter_id);
+  void PropagateOutputs(const Node* node,
+                        const EntryVector& outputs, const int64 iter_id); 
                         
-  void AddIterNode(const Node* node);
+  // Propagate dead branches.
+  void PropagateDeadness(const Node* node, const int64 iter_id);
+                        
+  void AddIterNode(const Node* node, std::vector<const Node*>& vec);
 
 
 
@@ -609,29 +614,32 @@ HPXExecutorState::~HPXExecutorState() {
   delete slice_reader_cache_;
 }
 
-void HPXExecutorState::AddIterNode(const Node* node)
+void HPXExecutorState::AddIterNode(const Node* node, std::vector<const Node*>& vec)
 {
-  if (std::find(iteration_nodes_.begin(), iteration_nodes_.end(), node) == iteration_nodes_.end())
+  if (std::find(vec.begin(), vec.end(), node) == vec.end())
   {
     if (!IsEnter(node))
-      iteration_nodes_.push_back(node);
+      vec.push_back(node);
 
     if (!IsExit(node) && !IsNextIteration(node))
       for (const Edge* e : node->out_edges())
-        AddIterNode(e->dst());
+        AddIterNode(e->dst(), vec);
   }  
 }
 
 void HPXExecutorState::RunAsync(Executor::DoneCallback done) {
   const Graph* graph = impl_->graph_;
   
-  
   for (const Node* n : graph->nodes())
-  {    
+  { 
     if (IsEnter(n))
-      AddIterNode(n);      
+    {
+      std::vector<const Node*> iter_nodes;
+      AddIterNode(n, iter_nodes); 
+      iteration_nodes_.push_back(iter_nodes);      
+    }    
   }
-
+  
   // Ask the device to fill in the device context map.
   Device* device = impl_->params_.device;
   Status fill_status = device->FillContextMap(graph, &device_context_map_);
@@ -658,7 +666,7 @@ void HPXExecutorState::RunAsync(Executor::DoneCallback done) {
   });
 }
 
-void HPXExecutorState::Process(const Node* node, Entry* input_tensors, const int64 iter_id, int64 scheduled_usec) {
+void HPXExecutorState::Process(const Node* node, Entry* input_tensors, int64 iter_id, int64 scheduled_usec) {
   bool is_dead = false;
   
   const NodeItem* nodes = impl_->nodes_;
@@ -712,7 +720,7 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors, const int
     nodestats::SetScheduled(stats, scheduled_usec);
     nodestats::SetAllStart(stats);
   }
-        
+
   if (vlog_) {
     VLOG(1) << "Process node: " << id << " step " << params.step_id << " "
             << SummarizeNodeDef(node->def());
@@ -779,7 +787,24 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors, const int
     // Propagates outputs.
     if (s.ok())
     {
-      PropagateOutputs(item, outputs, iter_id);
+      if (IsNextIteration(node))
+      {      
+        ++iter_id;
+        
+        for (auto const& vec : iteration_nodes_)
+          if (std::find(vec.begin(), vec.end(), node) != vec.end())
+          {      
+            for (const Node* n : vec)
+              Schedule(n, iter_id);
+              
+            break;
+          }
+      }
+      
+      if (IsExit(node))
+        iter_id = 0;
+      
+      PropagateOutputs(node, outputs, iter_id);
     }
     outputs.clear();
     if (!accessed_tensors.empty()) {
@@ -982,22 +1007,9 @@ Status HPXExecutorState::ProcessOutputs(const NodeItem& item, OpKernelContext* c
   return s;
 }
 
-void HPXExecutorState::PropagateOutputs(const NodeItem& node_item,
+void HPXExecutorState::PropagateOutputs(const Node* node,
                                       const EntryVector& outputs,
-                                      int64 iter_id) {
-  const Node* node = node_item.node;
-  
-  if (IsNextIteration(node))
-  {      
-    ++iter_id;
-    
-    for (const Node* n : iteration_nodes_)
-      Schedule(n, iter_id);
-  }
-  
-  if (IsExit(node))
-    iter_id = 0;
-  
+                                      const int64 iter_id) {      
   unsigned src_id = node->id();
   
   for (const Edge* e : node->out_edges()) {
@@ -1026,6 +1038,16 @@ void HPXExecutorState::PropagateOutputs(const NodeItem& node_item,
   }
 }
 
+void HPXExecutorState::PropagateDeadness(const Node* node, const int64 iter_id)
+{
+  if (IsExit(node))
+    return;
+    
+  EntryVector dead_outputs(node->num_outputs());
+  
+  PropagateOutputs(node, dead_outputs, iter_id);
+}
+
 
 hpx::future<void> HPXExecutorState::Schedule(const Node* node, const int64 iter_id) {            
   int64 scheduled_usec = 0;
@@ -1033,7 +1055,7 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node, const int64 iter_
     scheduled_usec = nodestats::NowInUsec();
   }
   std::vector<hpx::lcos::shared_future<Entry> > input_futures(node->num_inputs());
-    
+        
   unsigned dst_id = node->id();
   unsigned last_used = input_futures.size();
   for (const Edge* e : node->in_edges())
@@ -1072,7 +1094,10 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node, const int64 iter_
         // branch is dead
         for (int i = 0; i < node->num_inputs(); ++i)
           if (!inputs[i].has_value)
+          {
+            PropagateDeadness(node, iter_id);
             return;
+          }
             
         Process(node, inputs.data(), iter_id, scheduled_usec);
       }
@@ -1084,7 +1109,7 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node, const int64 iter_
       hpx::util::unwrapped(
         [this, node, iter_id, scheduled_usec](hpx::when_any_result<std::vector<hpx::lcos::shared_future<Entry> > > result)
         {          
-          std::vector<Entry> inputs(node->num_inputs());
+          EntryVector inputs(node->num_inputs());
                     
           inputs[result.index] = result.futures[result.index].get();
                     

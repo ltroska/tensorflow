@@ -506,9 +506,13 @@ class HPXExecutorState {
   // device at the beginning of a step.
   DeviceContextMap device_context_map_;
     
-  std::unordered_map<std::string, hpx::lcos::local::promise<Entry> > promise_map_;
-  std::unordered_map<std::string, hpx::lcos::shared_future<Entry> > future_map_;
+  std::unordered_map<std::string, hpx::lcos::local::promise<Entry> >
+                                                                promise_map_;
+  std::unordered_map<std::string, hpx::lcos::shared_future<Entry> >
+                                                                future_map_;
   std::unordered_map<std::string, bool> is_set_map_;
+  std::unordered_map<std::string, bool> is_dead_;
+  std::mutex finish_mutex_;
 
   typedef gtl::InlinedVector<Entry, 4> EntryVector;
 
@@ -535,6 +539,7 @@ class HPXExecutorState {
   bool sync_on_finish_;
   
   std::vector<std::vector<const Node*> > iteration_nodes_; 
+  std::vector<bool> is_loop_node_;
 
   // Owned.
 
@@ -546,12 +551,15 @@ class HPXExecutorState {
   Executor::DoneCallback done_cb_;
 
   std::atomic_int_fast32_t num_outstanding_ops_;
+  std::atomic_int_fast32_t num_computed_ops_;
+  bool was_finished_;
 
   mutex mu_;
   Status status_ GUARDED_BY(mu_);
 
   // Process a ready node in current thread.
-  void Process(const Node* node, Entry* inputs, int64 iter_id, int64 scheduled_usec);
+  void Process(const Node* node, Entry* inputs, int64 iter_id, int64 base_iter,
+                std::string const& key_prefix, int64 scheduled_usec);
 
   // Before invoking item->kernel, fills in its "inputs".
   Status PrepareInputs(const NodeItem& item, Entry* first_input,
@@ -567,19 +575,18 @@ class HPXExecutorState {
 
 
   // After processing the outputs, propagates the outputs to their dsts.
-  void PropagateOutputs(const Node* node,
-                        const EntryVector& outputs, const int64 iter_id); 
+  void PropagateOutputs(const Node* node, const EntryVector& outputs,
+                          const int64 iter_id, const int64 base_iter,
+                          std::string const& key_prefix, const bool is_dead); 
                         
-  // Propagate dead branches.
-  void PropagateDeadness(const Node* node, const int64 iter_id);
-                        
-  void AddIterNode(const Node* node, std::vector<const Node*>& vec);
-
-
-
+  Status BuildControlFlow(const Graph* g, 
+                            std::vector<std::vector<const Node*> >& loops);
+  
   // Schedule all the expensive nodes in 'ready', and put all the inexpensive
   // nodes in 'ready' into 'inline_ready'.
-  hpx::future<void> Schedule(const Node* node, const int64 iter_id);
+  hpx::future<void> Schedule(const Node* node, const int64 iter_id,
+                              const int64 base_iter,
+                              std::string const& key_prefix);
 
   const Tensor* GetTensorValueForDump(const Entry& input);
 
@@ -587,7 +594,8 @@ class HPXExecutorState {
   void Finish();
 };
 
-HPXExecutorState::HPXExecutorState(const Executor::Args& args, HPXExecutorImpl* impl)
+HPXExecutorState::HPXExecutorState(const Executor::Args& args,
+                                    HPXExecutorImpl* impl)
     : vlog_(VLOG_IS_ON(1)),
       log_memory_(LogMemory::IsEnabled()),
       step_id_(args.step_id),
@@ -602,7 +610,9 @@ HPXExecutorState::HPXExecutorState(const Executor::Args& args, HPXExecutorImpl* 
       cancellation_manager_(args.cancellation_manager),
       runner_(args.runner),
       sync_on_finish_(args.sync_on_finish),
-      num_outstanding_ops_(0) {
+      num_outstanding_ops_(0),
+      num_computed_ops_(0),
+      was_finished_(false) {
         promise_map_.clear();
         future_map_.clear();
 }
@@ -614,32 +624,76 @@ HPXExecutorState::~HPXExecutorState() {
   delete slice_reader_cache_;
 }
 
-void HPXExecutorState::AddIterNode(const Node* node, std::vector<const Node*>& vec)
-{
-  if (std::find(vec.begin(), vec.end(), node) == vec.end())
-  {
-    if (!IsEnter(node))
-      vec.push_back(node);
+Status HPXExecutorState::BuildControlFlow(const Graph* g,
+                              std::vector<std::vector<const Node*> >& loops) { 
+  const int num_nodes = g->num_node_ids();
+  loops.resize(num_nodes);
+  is_loop_node_.resize(num_nodes);
+  std::vector<Node*> parent_nodes;
+  parent_nodes.resize(num_nodes);
+  std::vector<bool> visited;
+  visited.resize(num_nodes);
 
-    if (!IsExit(node) && !IsNextIteration(node))
-      for (const Edge* e : node->out_edges())
-        AddIterNode(e->dst(), vec);
-  }  
+  std::deque<Node*> ready;
+
+  // Initialize with the root nodes.
+  for (Node* n : g->nodes()) {
+    if (n->in_edges().empty()) {
+      visited[n->id()] = true;
+      ready.push_back(n);
+    }
+  }
+  
+  std::vector<const Node*>* vec;
+
+  while (!ready.empty()) {
+    Node* curr_node = ready.front();
+    int curr_id = curr_node->id();
+    ready.pop_front();
+
+    Node* parent = nullptr;
+    if (IsEnter(curr_node)) {
+      // Enter a child frame.
+      parent = curr_node;
+    } else if (IsExit(curr_node)) {
+      // Exit to the parent frame.
+      parent = parent_nodes[curr_id];
+      parent = parent_nodes[parent->id()];
+    } else {
+      parent = parent_nodes[curr_id];
+    }
+    if (parent != nullptr)
+      vec = &loops[parent->id()];
+
+    for (const Edge* out_edge : curr_node->out_edges()) {
+      Node* out = out_edge->dst();
+      int out_id = out->id();
+
+      // Add to ready queue if not visited.
+      bool is_visited = visited[out_id];
+      if (!is_visited) {
+        ready.push_back(out);
+        visited[out_id] = true;
+        
+        if (parent != nullptr)
+        {        
+            is_loop_node_[out_id] = true;
+            vec->push_back(out);          
+        }
+                
+        // Process the node 'out'.
+        parent_nodes[out_id] = parent;
+      }
+    }
+  }
+
+  return Status::OK();
 }
+
 
 void HPXExecutorState::RunAsync(Executor::DoneCallback done) {
   const Graph* graph = impl_->graph_;
-  
-  for (const Node* n : graph->nodes())
-  { 
-    if (IsEnter(n))
-    {
-      std::vector<const Node*> iter_nodes;
-      AddIterNode(n, iter_nodes); 
-      iteration_nodes_.push_back(iter_nodes);      
-    }    
-  }
-  
+      
   // Ask the device to fill in the device context map.
   Device* device = impl_->params_.device;
   Status fill_status = device->FillContextMap(graph, &device_context_map_);
@@ -648,29 +702,47 @@ void HPXExecutorState::RunAsync(Executor::DoneCallback done) {
     return;
   }
 
-  num_outstanding_ops_ = graph->num_node_ids();
+  BuildControlFlow(graph, iteration_nodes_);
+  
   done_cb_ = done;
   // Schedule to run all the ready ops in thread pool.
   std::vector<hpx::future<void> > comp_futures;
-  comp_futures.reserve(num_outstanding_ops_);
+  comp_futures.reserve(graph->num_node_ids());
   
   constexpr int64 iter_id = 0;
+  constexpr int64 base_iter = 0;
   
   for (const Node* n : graph->nodes())
-      comp_futures.push_back(Schedule(n, iter_id));
-
-  hpx::when_all(comp_futures).then(
-  [this](hpx::future<std::vector<hpx::future<void> > >)
-  {
-    Finish();
-  });
+    if (!is_loop_node_[n->id()])
+      comp_futures.push_back(Schedule(n, iter_id, base_iter, ""));  
 }
 
-void HPXExecutorState::Process(const Node* node, Entry* input_tensors, int64 iter_id, int64 scheduled_usec) {
-  bool is_dead = false;
-  
-  const NodeItem* nodes = impl_->nodes_;
+template <class T>
+int numDigits(T number)
+{
+    int digits = 0;
+    if (number <= 0) digits = 1; // remove this line if '-' counts as a digit
+    while (number) {
+        number /= 10;
+        digits++;
+    }
+    return digits;
+}
 
+void HPXExecutorState::Process(const Node* node, Entry* input_tensors,
+                                int64 iter_id, int64 base_iter, 
+                                std::string const& key_prefix, 
+                                int64 scheduled_usec) {
+  
+  bool is_dead =
+    is_dead_[std::to_string(node->id()) + ";" 
+              + key_prefix + std::to_string(iter_id)];
+   
+  const NodeItem* nodes = impl_->nodes_;
+  
+  EntryVector outputs;
+  Status s;
+  NodeExecStats* stats = nullptr;
   // Parameters passed to OpKernel::Compute.
   TensorValueVec inputs ;
   DeviceContextVec input_device_contexts;
@@ -697,9 +769,6 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors, int64 ite
   params.input_alloc_attrs = &input_alloc_attrs;
   params.runner = &runner_;
 
-  Status s;
-  NodeExecStats* stats = nullptr;
-  EntryVector outputs;
   bool completed = false;
   
   const int id = node->id();
@@ -709,7 +778,7 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors, int64 ite
   if (id < device_context_map_.size()) {
     params.op_device_context = device_context_map_[id];
   }
-
+ 
   params.track_allocations = false;
   stats = nullptr;
   if (stats_collector_) {
@@ -721,29 +790,45 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors, int64 ite
     nodestats::SetAllStart(stats);
   }
 
-  if (vlog_) {
-    VLOG(1) << "Process node: " << id << " step " << params.step_id << " "
-            << SummarizeNodeDef(node->def());
+  // if beginning of loop, schedule all loop nodes
+  if (IsEnter(node))
+  {
+    base_iter = iter_id;
+    
+    for (const Node* n : iteration_nodes_[node->id()])
+      if (!IsExit(n))
+        Schedule(n, iter_id, base_iter,
+                  key_prefix + std::to_string(iter_id) + ";");      
   }
+  
+  // reschedule loop nodes for next iteration
+  if(is_loop_node_[node->id()] && !IsExit(node) && !is_dead)
+      Schedule(node, iter_id + 1, base_iter, key_prefix);
 
-  Entry* first_input = input_tensors;// + item.input_start;
-  outputs.clear();
+  if (!is_dead)
+  {
+    if (vlog_) {
+      VLOG(1) << "Process node: " << id << " step " << params.step_id << " "
+              << SummarizeNodeDef(node->def());
+    }    
 
-  TensorReferenceVector accessed_tensors;
-  DeviceContext* device_context = nullptr;
-  // Only execute this node if it is not dead or it is a send/recv
-  // transfer node. For transfer nodes, we need to propagate the "dead"
-  // bit even when the node is dead.
-  bool launched_asynchronously = false;
-  if (is_dead && !IsTransferNode(node)) {
-    outputs.resize(item.num_outputs);
-  } else {
+    Entry* first_input = input_tensors;
+    outputs.clear();
+
+    TensorReferenceVector accessed_tensors;
+    DeviceContext* device_context = nullptr;
+    // Only execute this node if it is not dead or it is a send/recv
+    // transfer node. For transfer nodes, we need to propagate the "dead"
+    // bit even when the node is dead.
+    bool launched_asynchronously = false;
+    
     // Prepares inputs.
     bool is_input_dead = false;
     if (first_input)
     {
       s = PrepareInputs(item, first_input, &inputs, &input_device_contexts,
                         &input_alloc_attrs, &is_input_dead);
+        
       if (!s.ok()) {
         // Clear inputs.
         int num_inputs = item.num_inputs;
@@ -752,27 +837,22 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors, int64 ite
         }
       }
     }
-
-
+    
     // Set up compute params.
     OpKernel* op_kernel = item.kernel;
     params.op_kernel = op_kernel;
-    //params.frame_iter = FrameAndIter(input_frame->frame_id, input_iter);
     params.frame_iter = FrameAndIter(0, iter_id);
-    
-   // params.is_input_dead = is_input_dead;
+  
+    params.is_input_dead = is_input_dead;
     params.output_attr_array =
         gtl::vector_as_array(&impl_->output_attrs_) + item.output_attr_start;
 
-    // Synchronous computes.
     OpKernelContext ctx(&params, item.num_outputs);
-        
-    Status s;
-            
+                    
     if (stats) nodestats::SetOpStart(stats);
     device->Compute(CHECK_NOTNULL(op_kernel), &ctx);
-    
     if (stats) nodestats::SetOpEnd(stats);
+    
     s = ProcessOutputs(item, &ctx, &outputs, stats);
     if (s.ok() && impl_->device_record_tensor_accesses_) {
       // Get the list of all tensors accessed during the execution
@@ -784,30 +864,7 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors, int64 ite
     for (int i = 0; i < num_inputs; ++i) {
       (first_input + i)->ClearVal();
     }
-    // Propagates outputs.
-    if (s.ok())
-    {
-      if (IsNextIteration(node))
-      {      
-        ++iter_id;
-        
-        for (auto const& vec : iteration_nodes_)
-          if (std::find(vec.begin(), vec.end(), node) != vec.end())
-          {      
-            for (const Node* n : vec)
-              Schedule(n, iter_id);
-              
-            break;
-          }
-      }
-      
-      if (IsExit(node))
-        iter_id = 0;
-      
-      PropagateOutputs(node, outputs, iter_id);
-    }
-    outputs.clear();
-    if (!accessed_tensors.empty()) {
+        if (!accessed_tensors.empty()) {
       if (stats) nodestats::SetReferencedTensors(stats, accessed_tensors);
       // device_context is set above in synchronous computes
       device->ConsumeListOfAccessedTensors(device_context, accessed_tensors);
@@ -816,89 +873,136 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors, int64 ite
       scheduled_usec = nodestats::NowInUsec();
     }
   }
+  else
+  {    
+    outputs.resize(node->num_outputs());
+  }
   
+  if (s.ok())
+  {      
+    std::string out_prefix = key_prefix;
+          
+    // each (nested) loop appends iteration of parent to the prefix
+    if (IsEnter(node))
+      out_prefix += std::to_string(iter_id) + ";";
+                
+    if (IsNextIteration(node))    
+      ++iter_id;
+    
+    // on exit of the (nested) loop, remove the last part of the prefix to send 
+    // data to parent loop
+    if (IsExit(node))
+    {
+      iter_id = base_iter; 
+      
+      if (key_prefix.size() == numDigits(base_iter) + 1)          
+        out_prefix = "";
+      else
+        out_prefix =
+          key_prefix.substr(0, key_prefix.size() - numDigits(iter_id) - 1);
+    }
+          
+    PropagateOutputs(node, outputs, iter_id, base_iter, out_prefix, is_dead);
+    outputs.clear();
+  }
+     
   num_outstanding_ops_--;
+  num_computed_ops_++;
+  
+  std::lock_guard<std::mutex> lk(finish_mutex_);
+  // need to at least compute all operations once before finishing
+  if (num_outstanding_ops_ == 0 
+      && 
+      num_computed_ops_ >= impl_->graph_->num_node_ids())
+  {
+    if(!was_finished_)
+    {
+      was_finished_ = true;
+      Finish();  
+    }
+  }
 }
 
 Status HPXExecutorState::PrepareInputs(const NodeItem& item, Entry* first_input,
-                                    TensorValueVec* inputs,
-                                    DeviceContextVec* input_device_contexts,
-                                    AllocatorAttributeVec* input_alloc_attrs,
-                                    bool* is_input_dead) {
-  const Node* node = item.node;
+                                        TensorValueVec* inputs,
+                                        DeviceContextVec* input_device_contexts,
+                                        AllocatorAttributeVec* input_alloc_attrs,
+                                        bool* is_input_dead) {
+      const Node* node = item.node;
 
-  inputs->clear();
-  inputs->resize(item.num_inputs);
-  input_device_contexts->clear();
-  input_device_contexts->resize(item.num_inputs);
-  input_alloc_attrs->clear();
-  input_alloc_attrs->resize(item.num_inputs);
+      inputs->clear();
+      inputs->resize(item.num_inputs);
+      input_device_contexts->clear();
+      input_device_contexts->resize(item.num_inputs);
+      input_alloc_attrs->clear();
+      input_alloc_attrs->resize(item.num_inputs);
 
-  *is_input_dead = false;
+      *is_input_dead = false;
 
-  bool is_merge = item.is_merge;
-  for (int i = 0; i < item.num_inputs; ++i) {
-    const bool expect_ref = IsRefType(item.input_type(i));
-    Entry* entry = first_input + i;
-    (*input_device_contexts)[i] = entry->device_context;
-    (*input_alloc_attrs)[i] = entry->alloc_attr;
+      bool is_merge = item.is_merge;
+      for (int i = 0; i < item.num_inputs; ++i) {
+        const bool expect_ref = IsRefType(item.input_type(i));
+        Entry* entry = first_input + i;
+        (*input_device_contexts)[i] = entry->device_context;
+        (*input_alloc_attrs)[i] = entry->alloc_attr;
 
-    // i-th input.
-    TensorValue* inp = &(*inputs)[i];
+        // i-th input.
+        TensorValue* inp = &(*inputs)[i];
 
-    // Only merge and transfer nodes can have no-value inputs.
-    if (!entry->has_value) {
-      if (!is_merge) {
-        DCHECK(IsTransferNode(node));
-        DCHECK(!entry->val_field_is_set);
-        entry->has_value = true;
-        entry->val_field_is_set = true;
-        entry->val.Init(*kEmptyTensor);
-        inp->tensor = entry->val.get();
-        *is_input_dead = true;
-      }
-      continue;
-    }
-    if (entry->ref == nullptr) {
-      if (expect_ref) {
-        return AttachDef(
-            errors::InvalidArgument(i, "-th input expects a ref type"),
-            item.kernel->def());
-      }
-      inp->tensor = entry->val.get();
-    } else {
-      if (!entry->ref->IsInitialized() && !IsInitializationOp(item.node)) {
-        return AttachDef(
-            errors::FailedPrecondition("Attempting to use uninitialized value ",
-                                       item.kernel->def().input(i)),
-            item.kernel->def());
-      }
-      if (expect_ref) {
-        inp->mutex_if_ref = entry->ref_mu;
-        inp->tensor = entry->ref;
-      } else {
-        // Automatically deref the tensor ref when the op expects a
-        // tensor but is given a ref to a tensor.  Need to deref it
-        // under the mutex.
-        {
-          mutex_lock l(*(entry->ref_mu));
-          DCHECK(!entry->val_field_is_set);
-          entry->val.Init(*entry->ref);
-          entry->val_field_is_set = true;
+        // Only merge and transfer nodes can have no-value inputs.
+        if (!entry->has_value) {
+          if (!is_merge) {
+            DCHECK(IsTransferNode(node));
+            DCHECK(!entry->val_field_is_set);
+            entry->has_value = true;
+            entry->val_field_is_set = true;
+            entry->val.Init(*kEmptyTensor);
+            inp->tensor = entry->val.get();
+            *is_input_dead = true;
+          }
+          continue;
         }
-        entry->ref = nullptr;
-        entry->ref_mu = nullptr;
+        if (entry->ref == nullptr) {
+          if (expect_ref) {
+            return AttachDef(
+                errors::InvalidArgument(i, "-th input expects a ref type"),
+                item.kernel->def());
+          }
+          inp->tensor = entry->val.get();
+        } else {
+          if (!entry->ref->IsInitialized() && !IsInitializationOp(item.node)) {
+            return AttachDef(
+                errors::FailedPrecondition("Attempting to use uninitialized value ",
+                                           item.kernel->def().input(i)),
+                item.kernel->def());
+          }
+          if (expect_ref) {
+            inp->mutex_if_ref = entry->ref_mu;
+            inp->tensor = entry->ref;
+          } else {
+            // Automatically deref the tensor ref when the op expects a
+            // tensor but is given a ref to a tensor.  Need to deref it
+            // under the mutex.
+            {
+              mutex_lock l(*(entry->ref_mu));
+              DCHECK(!entry->val_field_is_set);
+              entry->val.Init(*entry->ref);
+              entry->val_field_is_set = true;
+            }
+            entry->ref = nullptr;
+            entry->ref_mu = nullptr;
 
-        inp->tensor = entry->val.get();
+            inp->tensor = entry->val.get();
+          }
+        }
       }
+      return Status::OK();
     }
-  }
-  return Status::OK();
-}
 
-Status HPXExecutorState::ProcessOutputs(const NodeItem& item, OpKernelContext* ctx,
-                                     EntryVector* outputs,
-                                     NodeExecStats* stats) {
+Status HPXExecutorState::ProcessOutputs(const NodeItem& item,
+                                          OpKernelContext* ctx,
+                                           EntryVector* outputs,
+                                           NodeExecStats* stats) {
   const Node* node = item.node;
   DCHECK_EQ(0, outputs->size());
   outputs->resize(item.num_outputs);
@@ -1008,16 +1112,21 @@ Status HPXExecutorState::ProcessOutputs(const NodeItem& item, OpKernelContext* c
 }
 
 void HPXExecutorState::PropagateOutputs(const Node* node,
-                                      const EntryVector& outputs,
-                                      const int64 iter_id) {      
+                                          const EntryVector& outputs,
+                                          const int64 iter_id,
+                                          const int64 base_iter,
+                                          std::string const& key_prefix,
+                                          const bool is_dead) {      
+                          
   unsigned src_id = node->id();
   
   for (const Edge* e : node->out_edges()) {
     unsigned dst_id = e->dst()->id();
 
-    std::string key = std::to_string(step_id_) + ";" + std::to_string(iter_id) + ";"
-      + std::to_string(src_id) + ";" + std::to_string(dst_id);
-                  
+    std::string key = key_prefix + std::to_string(step_id_) + ";" 
+      + std::to_string(iter_id) + ";" + std::to_string(src_id) + ";" 
+      + std::to_string(dst_id);
+                        
     if (!e->IsControlEdge())
     {
       unsigned src_slot = e->src_output();
@@ -1025,45 +1134,80 @@ void HPXExecutorState::PropagateOutputs(const Node* node,
             
       key += ";" + std::to_string(src_slot) + ";" + std::to_string(dst_slot);
     }
-    
+        
     if (is_set_map_.count(key) == 0)
     {
-      is_set_map_[key] = true;
-      
-      if (e->IsControlEdge())
-        promise_map_[key].set_value(Entry());
-      else
-        promise_map_[key].set_value(outputs[e->src_output()]);
-    } 
+      // if node is dead or has no valid output and destination is a loop node,
+      // the destination node is dead.
+      if (
+          (
+            is_dead || (!e->IsControlEdge()
+            && 
+            !outputs[e->src_output()].has_value)
+          )
+          && is_loop_node_[dst_id])
+      {
+        // need to schedule exit node for cleanup of potentially nested loops
+        if (IsExit(e->dst()) && is_dead)
+          Schedule(e->dst(), iter_id, base_iter, key_prefix);
+
+        is_set_map_[key] = true;
+        is_dead_[std::to_string(dst_id) + ";" + key_prefix
+                  + std::to_string(iter_id)] 
+                  = true;
+                  
+        if (!e->IsControlEdge() && outputs[e->src_output()].has_value)
+          promise_map_[key].set_value(outputs[e->src_output()]);
+        else
+          promise_map_[key].set_value(Entry());          
+      }
+      else if (!is_dead)
+      {
+        is_set_map_[key] = true;
+        
+        if(e->IsControlEdge())
+          promise_map_[key].set_value(Entry());
+        else
+        { 
+          // schedule exit of the loop
+          if (IsExit(e->dst()) && outputs[e->src_output()].has_value)
+            Schedule(e->dst(), iter_id, base_iter, key_prefix);
+          promise_map_[key].set_value(outputs[e->src_output()]);
+        }       
+      }          
+    }
   }
 }
 
-void HPXExecutorState::PropagateDeadness(const Node* node, const int64 iter_id)
-{
-  if (IsExit(node))
-    return;
-    
-  EntryVector dead_outputs(node->num_outputs());
+
+hpx::future<void> HPXExecutorState::Schedule(const Node* node,
+                                              const int64 iter_id,
+                                              const int64 base_iter,
+                                              std::string const& key_prefix) {  
   
-  PropagateOutputs(node, dead_outputs, iter_id);
-}
-
-
-hpx::future<void> HPXExecutorState::Schedule(const Node* node, const int64 iter_id) {            
+  num_outstanding_ops_++;
+    
   int64 scheduled_usec = 0;
   if (stats_collector_) {
     scheduled_usec = nodestats::NowInUsec();
   }
-  std::vector<hpx::lcos::shared_future<Entry> > input_futures(node->num_inputs());
-        
+  
+  std::vector<hpx::lcos::shared_future<Entry> > input_futures(
+                                                      node->num_inputs());  
+                                                      
+  std::vector<hpx::lcos::shared_future<Entry> > control_futures;
+  control_futures.reserve(node->in_edges().size() - node->num_inputs());
+                
   unsigned dst_id = node->id();
   unsigned last_used = input_futures.size();
+  
   for (const Edge* e : node->in_edges())
   {        
     unsigned src_id = e->src()->id();
     
-    std::string key = std::to_string(step_id_) + ";" + std::to_string(iter_id) + ";" +
-      std::to_string(src_id) + ";" + std::to_string(dst_id);
+    std::string key =
+      key_prefix + std::to_string(step_id_) + ";" + std::to_string(iter_id) 
+      + ";" + std::to_string(src_id) + ";" + std::to_string(dst_id);
       
     if (!e->IsControlEdge())
     {
@@ -1071,7 +1215,7 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node, const int64 iter_
       unsigned dst_slot = e->dst_input();
                       
       key += ";" + std::to_string(src_slot) + ";" + std::to_string(dst_slot);
-      
+            
       future_map_[key] = promise_map_[key].get_future().share();
       input_futures[dst_slot] = future_map_[key];
     }
@@ -1080,43 +1224,74 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node, const int64 iter_
       if (future_map_.count(key) == 0)
       {
         future_map_[key] = promise_map_[key].get_future().share();
-        input_futures.push_back(future_map_[key]);
+        control_futures.emplace_back(future_map_[key]);
       }
     }
   }
 
+  auto when_all_control_futures = hpx::when_all(control_futures).share();
+
   if (!IsMerge(node))
   {
-    return hpx::when_all(input_futures).then(
-    hpx::util::unwrapped2(
-      [this, node, iter_id, scheduled_usec](std::vector<Entry> inputs)
-      {
-        // branch is dead
-        for (int i = 0; i < node->num_inputs(); ++i)
-          if (!inputs[i].has_value)
+    auto when_all_input_futures = hpx::when_all(input_futures).share();
+       
+    return hpx::when_all(when_all_control_futures, when_all_input_futures)
+      .then(
+        hpx::util::unwrapped(
+          [this, node, iter_id, base_iter, key_prefix, scheduled_usec]
+          (hpx::util::tuple<
+              hpx::shared_future<
+                  std::vector<hpx::shared_future<Entry> >
+              >
+            , hpx::shared_future<
+                  std::vector<hpx::shared_future<Entry> > 
+              > 
+            > data)
           {
-            PropagateDeadness(node, iter_id);
-            return;
-          }
+            auto inputs_futures = hpx::util::get<1>(data).get();
             
-        Process(node, inputs.data(), iter_id, scheduled_usec);
-      }
-    ));  
+            std::vector<Entry> inputs;
+            inputs.reserve(inputs_futures.size());
+            
+            for (auto& f : inputs_futures)
+              inputs.push_back(f.get());
+            
+            Process(node, inputs.data(), iter_id, base_iter, key_prefix,
+                      scheduled_usec);
+          }
+        )        
+      );
   }
   else
   {
-    return hpx::when_any(input_futures).then(
-      hpx::util::unwrapped(
-        [this, node, iter_id, scheduled_usec](hpx::when_any_result<std::vector<hpx::lcos::shared_future<Entry> > > result)
-        {          
-          EntryVector inputs(node->num_inputs());
+    auto when_any_input_futures = hpx::when_any(input_futures).share();
+    
+    return hpx::when_all(when_all_control_futures, when_any_input_futures)
+      .then(
+        hpx::util::unwrapped(
+          [this, node, iter_id, base_iter, key_prefix, scheduled_usec]
+          (hpx::util::tuple<
+              hpx::shared_future<
+                std::vector<hpx::shared_future<Entry> > 
+              >
+            , hpx::shared_future<
+                hpx::when_any_result<
+                  std::vector<hpx::lcos::shared_future<Entry> > 
+                > 
+              > 
+            > data)
+          {
+            EntryVector inputs(node->num_inputs());
                     
-          inputs[result.index] = result.futures[result.index].get();
+            auto result = hpx::util::get<1>(data).get();
                     
-          Process(node, inputs.data(), iter_id, scheduled_usec);
-        }        
-      )    
-    );
+            inputs[result.index] = result.futures[result.index].get();
+            
+            Process(node, inputs.data(), iter_id, base_iter, key_prefix,
+                      scheduled_usec);
+          }
+        )        
+      );
   }
   
 }
@@ -1133,6 +1308,7 @@ const Tensor* HPXExecutorState::GetTensorValueForDump(const Entry& input) {
 
 void HPXExecutorState::Finish() {
   mu_.lock();
+    
   auto status = status_;
   auto done_cb = std::move(done_cb_);
   auto runner = std::move(runner_);

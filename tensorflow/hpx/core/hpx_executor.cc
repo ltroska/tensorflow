@@ -525,7 +525,8 @@ class HPXExecutorState {
   std::unordered_map<std::string, bool> is_set_map_;
   std::unordered_map<std::string, bool> is_dead_;
   std::mutex finish_mutex_;
-  std::condition_variable maybe_finished;
+//  std::condition_variable maybe_finished;
+  bool was_finished;
   std::recursive_mutex map_mutex_;
 
   typedef gtl::InlinedVector<Entry, 4> EntryVector;
@@ -624,7 +625,8 @@ HPXExecutorState::HPXExecutorState(const Executor::Args& args,
       runner_(args.runner),
       sync_on_finish_(args.sync_on_finish),
       num_outstanding_ops_(0),
-      num_computed_ops_(0) {
+      num_computed_ops_(0),
+      was_finished(false) {
         promise_map_.clear();
         future_map_.clear();
 }
@@ -727,7 +729,7 @@ void HPXExecutorState::RunAsync(Executor::DoneCallback done) {
        Schedule(n, iter_id, base_iter, ""); 
 
 
-  std::unique_lock<std::mutex> lk(finish_mutex_);
+/*  std::unique_lock<std::mutex> lk(finish_mutex_);
 
   maybe_finished.wait(lk,
     [this]()
@@ -739,7 +741,7 @@ void HPXExecutorState::RunAsync(Executor::DoneCallback done) {
     }
   );
 
-  Finish();  
+  Finish();*/  
 }
 
 void HPXExecutorState::Process(const Node* node, Entry* input_tensors,
@@ -809,13 +811,13 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors,
     
     for (const Node* n : iteration_nodes_[node->id()])
       if (!IsExit(n))
-         Schedule(n, iter_id, base_iter,
+        Schedule(n, iter_id, base_iter,
                   key_prefix + std::to_string(iter_id) + ";");      
   }
   
   // reschedule loop nodes for next iteration
   if(is_loop_node_[node->id()] && !IsExit(node) && !is_dead)
-       Schedule(node, iter_id + 1, base_iter, key_prefix);
+    Schedule(node, iter_id + 1, base_iter, key_prefix);
 
   if (!is_dead)
   {
@@ -922,8 +924,19 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors,
   num_outstanding_ops_--;
   num_computed_ops_++;
   
+  if (!was_finished)
+  {
+  if (num_outstanding_ops_ == 0 
+          && 
+        num_computed_ops_ >= impl_->graph_->num_node_ids())
+        {
+          was_finished = true;
+          Finish();
+        }
+        
+  }  
   // notify main thread that computation is done
-  maybe_finished.notify_one();    
+//  maybe_finished.notify_one();    
 }
 
 Status HPXExecutorState::PrepareInputs(const NodeItem& item, Entry* first_input,

@@ -186,6 +186,18 @@ void SetReferencedTensors(NodeExecStats* nt,
 
 }  // namespace nodestats
 
+template <class T>
+int numDigits(T number)
+{
+    int digits = 0;
+    if (number <= 0) digits = 1;
+    while (number) {
+        number /= 10;
+        digits++;
+    }
+    return digits;
+}
+
 struct NodeItem {
   // A graph node.
   const Node* node = nullptr;
@@ -513,6 +525,8 @@ class HPXExecutorState {
   std::unordered_map<std::string, bool> is_set_map_;
   std::unordered_map<std::string, bool> is_dead_;
   std::mutex finish_mutex_;
+  std::condition_variable maybe_finished;
+  std::recursive_mutex map_mutex_;
 
   typedef gtl::InlinedVector<Entry, 4> EntryVector;
 
@@ -550,9 +564,8 @@ class HPXExecutorState {
   // Invoked when the execution finishes.
   Executor::DoneCallback done_cb_;
 
-  std::atomic_int_fast32_t num_outstanding_ops_;
-  std::atomic_int_fast32_t num_computed_ops_;
-  bool was_finished_;
+  int64 num_outstanding_ops_;
+  int64 num_computed_ops_;
 
   mutex mu_;
   Status status_ GUARDED_BY(mu_);
@@ -611,8 +624,7 @@ HPXExecutorState::HPXExecutorState(const Executor::Args& args,
       runner_(args.runner),
       sync_on_finish_(args.sync_on_finish),
       num_outstanding_ops_(0),
-      num_computed_ops_(0),
-      was_finished_(false) {
+      num_computed_ops_(0) {
         promise_map_.clear();
         future_map_.clear();
 }
@@ -701,39 +713,39 @@ void HPXExecutorState::RunAsync(Executor::DoneCallback done) {
     done(fill_status);
     return;
   }
-
+  
   BuildControlFlow(graph, iteration_nodes_);
   
   done_cb_ = done;
   // Schedule to run all the ready ops in thread pool.
-  std::vector<hpx::future<void> > comp_futures;
-  comp_futures.reserve(graph->num_node_ids());
   
   constexpr int64 iter_id = 0;
   constexpr int64 base_iter = 0;
   
   for (const Node* n : graph->nodes())
     if (!is_loop_node_[n->id()])
-      comp_futures.push_back(Schedule(n, iter_id, base_iter, ""));  
-}
+       Schedule(n, iter_id, base_iter, ""); 
 
-template <class T>
-int numDigits(T number)
-{
-    int digits = 0;
-    if (number <= 0) digits = 1; // remove this line if '-' counts as a digit
-    while (number) {
-        number /= 10;
-        digits++;
+
+  std::unique_lock<std::mutex> lk(finish_mutex_);
+
+  maybe_finished.wait(lk,
+    [this]()
+    {
+      return 
+        num_outstanding_ops_ == 0 
+          && 
+        num_computed_ops_ >= impl_->graph_->num_node_ids(); 
     }
-    return digits;
+  );
+
+  Finish();  
 }
 
 void HPXExecutorState::Process(const Node* node, Entry* input_tensors,
                                 int64 iter_id, int64 base_iter, 
                                 std::string const& key_prefix, 
-                                int64 scheduled_usec) {
-  
+                                int64 scheduled_usec) {                                  
   bool is_dead =
     is_dead_[std::to_string(node->id()) + ";" 
               + key_prefix + std::to_string(iter_id)];
@@ -797,13 +809,13 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors,
     
     for (const Node* n : iteration_nodes_[node->id()])
       if (!IsExit(n))
-        Schedule(n, iter_id, base_iter,
+         Schedule(n, iter_id, base_iter,
                   key_prefix + std::to_string(iter_id) + ";");      
   }
   
   // reschedule loop nodes for next iteration
   if(is_loop_node_[node->id()] && !IsExit(node) && !is_dead)
-      Schedule(node, iter_id + 1, base_iter, key_prefix);
+       Schedule(node, iter_id + 1, base_iter, key_prefix);
 
   if (!is_dead)
   {
@@ -906,21 +918,12 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors,
     outputs.clear();
   }
      
+  std::unique_lock<std::mutex> lk(finish_mutex_);
   num_outstanding_ops_--;
   num_computed_ops_++;
   
-  std::lock_guard<std::mutex> lk(finish_mutex_);
-  // need to at least compute all operations once before finishing
-  if (num_outstanding_ops_ == 0 
-      && 
-      num_computed_ops_ >= impl_->graph_->num_node_ids())
-  {
-    if(!was_finished_)
-    {
-      was_finished_ = true;
-      Finish();  
-    }
-  }
+  // notify main thread that computation is done
+  maybe_finished.notify_one();    
 }
 
 Status HPXExecutorState::PrepareInputs(const NodeItem& item, Entry* first_input,
@@ -1117,9 +1120,10 @@ void HPXExecutorState::PropagateOutputs(const Node* node,
                                           const int64 base_iter,
                                           std::string const& key_prefix,
                                           const bool is_dead) {      
-                          
   unsigned src_id = node->id();
   
+  std::lock_guard<std::recursive_mutex> lk(map_mutex_);
+
   for (const Edge* e : node->out_edges()) {
     unsigned dst_id = e->dst()->id();
 
@@ -1184,8 +1188,11 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node,
                                               const int64 iter_id,
                                               const int64 base_iter,
                                               std::string const& key_prefix) {  
-  
+                                                
+{
+  std::lock_guard<std::mutex> lk(finish_mutex_);
   num_outstanding_ops_++;
+}
     
   int64 scheduled_usec = 0;
   if (stats_collector_) {
@@ -1199,7 +1206,9 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node,
   control_futures.reserve(node->in_edges().size() - node->num_inputs());
                 
   unsigned dst_id = node->id();
-  unsigned last_used = input_futures.size();
+  
+  {
+  std::lock_guard<std::recursive_mutex> lk(map_mutex_);
   
   for (const Edge* e : node->in_edges())
   {        
@@ -1228,6 +1237,8 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node,
       }
     }
   }
+  
+  }
 
   auto when_all_control_futures = hpx::when_all(control_futures).share();
 
@@ -1236,7 +1247,7 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node,
     auto when_all_input_futures = hpx::when_all(input_futures).share();
        
     return hpx::when_all(when_all_control_futures, when_all_input_futures)
-      .then(
+      .then(hpx::launch::async,
         hpx::util::unwrapped(
           [this, node, iter_id, base_iter, key_prefix, scheduled_usec]
           (hpx::util::tuple<
@@ -1267,7 +1278,7 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node,
     auto when_any_input_futures = hpx::when_any(input_futures).share();
     
     return hpx::when_all(when_all_control_futures, when_any_input_futures)
-      .then(
+      .then(hpx::launch::async,
         hpx::util::unwrapped(
           [this, node, iter_id, base_iter, key_prefix, scheduled_usec]
           (hpx::util::tuple<

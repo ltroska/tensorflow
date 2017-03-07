@@ -23,11 +23,6 @@ limitations under the License.
 #include "tensorflow/core/common_runtime/debugger_state_interface.h"
 #include "tensorflow/core/common_runtime/device_factory.h"
 #include "tensorflow/core/common_runtime/executor.h"
-
-#if HAVE_HPX
-#include "tensorflow/hpx/core/hpx_executor.h"
-#endif
-
 #include "tensorflow/core/common_runtime/function.h"
 #include "tensorflow/core/common_runtime/graph_optimizer.h"
 #include "tensorflow/core/common_runtime/memory_types.h"
@@ -233,11 +228,6 @@ DirectSession::DirectSession(const SessionOptions& options,
       factory_(factory),
       cancellation_manager_(new CancellationManager()),
       operation_timeout_in_ms_(options_.config.operation_timeout_in_ms()) {
-  #if HAVE_HPX
-  if (options_.config.with_hpx())
-    init_ = new manage_global_runtime();
-  #endif
-        
   if (options_.config.session_inter_op_thread_pool_size() > 0) {
     for (int i = 0; i < options_.config.session_inter_op_thread_pool_size();
          ++i) {
@@ -436,6 +426,7 @@ Status DirectSession::Run(const RunOptions& run_options,
 
   // Send inputs.
   TF_RETURN_IF_ERROR(SendInputs(inputs, executors_and_keys, run_state.rendez));
+
   // Start parallel Executors.
   const int num_executors = executors_and_keys->items.size();
   ExecutorBarrier* barrier = new ExecutorBarrier(
@@ -1044,16 +1035,8 @@ Status DirectSession::GetOrCreateExecutors(
     item->graph = partition_graph.get();
     item->executor = nullptr;
     Executor* executor;
-     
-    #if HAVE_HPX  
-    if (options_.config.with_hpx())
-      TF_RETURN_IF_ERROR(
-          NewLocalHPXExecutor(params, partition_graph.release(), &executor));
-    else
-    #endif
-      TF_RETURN_IF_ERROR(
-          NewLocalExecutor(params, partition_graph.release(), &executor));
-          
+    TF_RETURN_IF_ERROR(
+        NewLocalExecutor(params, partition_graph.release(), &executor));
     item->executor.reset(executor);
   }
 

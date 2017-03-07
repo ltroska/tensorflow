@@ -13,9 +13,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/hpx/core/hpx_global_runtime.h"
-#include "tensorflow/hpx/core/hpx_graph_runner.h"
-#include "tensorflow/hpx/core/hpx_executor.h"
+#include "tensorflow/hpx/core/common_runtime/hpx_graph_runner.h"
+
+#include "tensorflow/hpx/core/common_runtime/hpx_executor.h"
 
 #include "tensorflow/core/common_runtime/device_factory.h"
 #include "tensorflow/core/common_runtime/function.h"
@@ -36,7 +36,7 @@ limitations under the License.
 #include <hpx/util/unwrapped.hpp>
 
 namespace tensorflow {
-
+  
 namespace {
 
 std::unique_ptr<Device> GetCPUDevice(Env* env) {
@@ -97,7 +97,7 @@ class SimpleRendezvous : public Rendezvous {
   void StartAbort(const Status& status) override {}
 
  private:
-  typedef std::unordered_map<string, hpx::lcos::promise<Tensor> > Table;
+  typedef std::unordered_map<string, hpx::lcos::local::promise<Tensor> > Table;
 
   mutex mu_;
   Table table_ GUARDED_BY(mu_);
@@ -111,8 +111,6 @@ Status HPXGraphRunner::Run(Graph* graph, FunctionLibraryRuntime* function_librar
                         const std::vector<string>& output_names,
                         std::vector<Tensor>* outputs) {
   
-  manage_global_runtime init_;
-
   // TODO(vrv): Instead of copying the entire graph, consider modifying
   // the existing graph, and then removing those removed edges.
   // prior to returning.

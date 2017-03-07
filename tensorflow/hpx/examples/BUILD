@@ -16,7 +16,7 @@ if_hpx(
             "//tensorflow/core:protos_all_cc",
             "//tensorflow/core:tensorflow",
             "//tensorflow/cc:scope",
-	        "//tensorflow/hpx/core:core_hpx",
+	        "//tensorflow/hpx/core:hpx_graph_runner",
         ],
     )
 )
@@ -34,7 +34,7 @@ if_hpx(
             "//tensorflow/core:protos_all_cc",
 	        "//tensorflow/core:tensorflow",
             "//tensorflow/cc:scope",
-	        "//tensorflow/hpx/core:core_hpx",
+	        "//tensorflow/hpx/core:hpx_graph_runner",
         ],
     )
 )

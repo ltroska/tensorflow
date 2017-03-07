@@ -128,17 +128,17 @@ def _hpx_autoconf_imp(repository_ctx):
   if not _enable_hpx(repository_ctx):
     _create_dummy_repository(repository_ctx)
   else:
-    # copy template files
-    _tpl(repository_ctx, "hpx:build_defs.bzl", {"%{hpx_is_configured}": "True"})
-    _tpl(repository_ctx, "hpx:BUILD")
-    _tpl(repository_ctx, "hpx:platform.bzl")
-    _file(repository_ctx, "hpx:LICENSE")
-
     hpx_root = find_hpx_root(repository_ctx);
     _check_dir(repository_ctx, hpx_root)
 
     boost_root = find_boost_root(repository_ctx);
     _check_dir(repository_ctx, boost_root)
+
+    # copy template files
+    _tpl(repository_ctx, "hpx:build_defs.bzl", {"%{hpx_is_configured}": "True"})
+    _tpl(repository_ctx, "hpx:BUILD", {"%{hpx_prefix}" : hpx_root})
+    _tpl(repository_ctx, "hpx:platform.bzl")
+    _file(repository_ctx, "hpx:LICENSE")
 
     # symlink libraries
     _symlink_dir(repository_ctx, hpx_root + "/lib", "hpx/hpx/lib")

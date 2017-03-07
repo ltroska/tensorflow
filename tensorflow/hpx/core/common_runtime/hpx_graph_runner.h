@@ -13,8 +13,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_HPX_CORE_HPX_GRAPH_RUNNER_H_
-#define TENSORFLOW_HPX_CORE_HPX_GRAPH_RUNNER_H_ 
+#ifndef TENSORFLOW_HPX_CORE_COMMON_RUNTIME_GRAPH_RUNNER_H_
+#define TENSORFLOW_HPX_CORE_COMMON_RUNTIME_GRAPH_RUNNER_H_ 
+
+#include "tensorflow/hpx/core/hpx_global_runtime.h"
 
 #include <memory>
 #include <string>
@@ -42,8 +44,11 @@ namespace tensorflow {
 // inference or for constant folding.  Because of its limited, simple
 // use-cases, it executes all computation on the CPU and is not meant
 // to be particularly lightweight, fast, or efficient.
+
 class HPXGraphRunner {
- public:
+  public:
+  HPXGraphRunner() {}
+ 
   // Function semantics for `inputs`, `output_names` and `outputs`
   // matches those from Session::Run().
   //
@@ -58,5 +63,5 @@ class HPXGraphRunner {
 
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_HPX_CORE_HPX_GRAPH_RUNNER_H_
+#endif  // TENSORFLOW_HPX_CORE_COMMON_RUNTIME_GRAPH_RUNNER_H_
 

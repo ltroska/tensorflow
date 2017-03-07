@@ -15,6 +15,9 @@ limitations under the License.
 
 #include "tensorflow/core/distributed_runtime/graph_mgr.h"
 
+#include "tensorflow/hpx/core/common_runtime/hpx_executor.h"
+
+
 #include <vector>
 
 #include "tensorflow/core/common_runtime/constant_folding.h"
@@ -230,7 +233,7 @@ Status GraphMgr::InitItem(const string& session, const GraphDef& gdef,
       skip_cost_models_ = false;
     }
     TF_RETURN_IF_ERROR(
-        NewLocalExecutor(params, subgraph.release(), &unit->root));
+        NewLocalHPXExecutor(params, subgraph.release(), &unit->root));
   }
   return Status::OK();
 }

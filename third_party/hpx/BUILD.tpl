@@ -34,6 +34,7 @@ if_hpx_is_configured(
         data = glob(["hpx/lib/**/*.so*"]),
 	    hdrs = glob(["hpx/include/**/*"]),
         includes = ["hpx/" , "hpx/include/"],
+        #defines = ['HPX_COMPONENT_NAME=hpx_worker_server', 'HPX_COMPONENT_STRING=\\"hpx_worker_server\\"', 'HPX_COMPONENT_EXPORTS'],
 	    deps = [":boost"],
         copts = ["-fexceptions"],
         alwayslink = 1,

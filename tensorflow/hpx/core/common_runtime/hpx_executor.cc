@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/hpx/core/hpx_executor.h"
+#include "tensorflow/hpx/core/common_runtime/hpx_executor.h"
 
 #include <hpx/util/unwrapped.hpp>
 #include <hpx/lcos/when_all.hpp>
@@ -80,7 +80,7 @@ bool IsInitializationOp(const Node* node) {
 // Returns true iff the node is a transfer node.
 // TODO(tucker): merge with the DetailText function in session.cc
 // in a common location.
-bool SetTimelineLabel(const Node* node, NodeExecStats* node_stats) {
+/*bool SetTimelineLabel(const Node* node, NodeExecStats* node_stats) {
   bool is_transfer_node = false;
   string memory;
   for (auto& all : node_stats->memory()) {
@@ -126,7 +126,7 @@ bool SetTimelineLabel(const Node* node, NodeExecStats* node_stats) {
   }
   node_stats->set_timeline_label(text);
   return is_transfer_node;
-}
+}*/
 
 // Helper routines for collecting step stats.
 namespace nodestats {
@@ -146,10 +146,10 @@ void SetOpEnd(NodeExecStats* nt) {
   nt->set_op_end_rel_micros(NowInUsec() - nt->all_start_micros());
 }
 
-void SetAllEnd(NodeExecStats* nt) {
+/*void SetAllEnd(NodeExecStats* nt) {
   DCHECK_NE(nt->all_start_micros(), 0);
   nt->set_all_end_rel_micros(NowInUsec() - nt->all_start_micros());
-}
+}*/
 
 void SetOutput(NodeExecStats* nt, int slot, const Tensor* v) {
   DCHECK(v);
@@ -187,9 +187,9 @@ void SetReferencedTensors(NodeExecStats* nt,
 }  // namespace nodestats
 
 template <class T>
-int numDigits(T number)
+unsigned numDigits(T number)
 {
-    int digits = 0;
+    unsigned digits = 0;
     if (number <= 0) digits = 1;
     while (number) {
         number /= 10;
@@ -451,7 +451,7 @@ class HPXExecutorState {
 
   void RunAsync(Executor::DoneCallback done);
 
- private:
+    private:
   // Either a tensor pointer (pass-by-reference) or a tensor (pass-by-value).
   // TODO(yuanbyu): A better way to do "has_value"?
   struct Entry {
@@ -567,12 +567,19 @@ class HPXExecutorState {
 
   int64 num_outstanding_ops_;
   int64 num_computed_ops_;
+  
+  int64 num_nodes_;
+  int64 num_node_ids_;
 
   mutex mu_;
   Status status_ GUARDED_BY(mu_);
 
+  class AsyncState;
+
+  void SignalNodeDone();
+
   // Process a ready node in current thread.
-  void Process(const Node* node, Entry* inputs, int64 iter_id, int64 base_iter,
+  void Process(const Node* node, EntryVector inputs, int64 iter_id, int64 base_iter,
                 std::string const& key_prefix, int64 scheduled_usec);
 
   // Before invoking item->kernel, fills in its "inputs".
@@ -602,15 +609,55 @@ class HPXExecutorState {
                               const int64 base_iter,
                               std::string const& key_prefix);
 
-  const Tensor* GetTensorValueForDump(const Entry& input);
+//  const Tensor* GetTensorValueForDump(const Entry& input);
 
   // Clean up when this executor is done.
   void Finish();
 };
 
+struct HPXExecutorState::AsyncState {
+  AsyncState(const OpKernelContext::Params& p, bool const _is_dead,
+             const NodeItem* _item, Entry* _first_input, NodeExecStats* _stats)
+      : saved_inputs(*p.inputs),
+        saved_input_device_contexts(*p.input_device_contexts),
+        saved_input_alloc_attrs(*p.input_alloc_attrs),
+        params(p),
+        is_dead(_is_dead),
+        item(_item),
+        first_input(_first_input),
+        // ParamsButClearingEigenGPUDevice does equivalent of
+        //   params.eigen_gpu_device = nullptr;
+        ctx(ParamsButClearingEigenGPUDevice(&params), item->num_outputs),
+        stats(_stats) {
+    params.inputs = &saved_inputs;
+    params.input_device_contexts = &saved_input_device_contexts;
+    params.input_alloc_attrs = &saved_input_alloc_attrs;
+  }
+
+  TensorValueVec saved_inputs;
+  DeviceContextVec saved_input_device_contexts;
+  AllocatorAttributeVec saved_input_alloc_attrs;
+  OpKernelContext::Params params;
+  bool is_dead;
+  const NodeItem* item;
+  Entry* first_input;
+  OpKernelContext ctx;
+  NodeExecStats* stats;
+
+ private:
+  OpKernelContext::Params* ParamsButClearingEigenGPUDevice(
+      OpKernelContext::Params* p) {
+    // Ensure OpKernelContext constructor will make a new eigen GPU device if
+    // necessary.
+    p->eigen_gpu_device = nullptr;  // Force allocation
+    return p;
+  }
+};
+
 HPXExecutorState::HPXExecutorState(const Executor::Args& args,
                                     HPXExecutorImpl* impl)
-    : vlog_(VLOG_IS_ON(1)),
+  :   was_finished(false), 
+      vlog_(VLOG_IS_ON(1)),
       log_memory_(LogMemory::IsEnabled()),
       step_id_(args.step_id),
       rendezvous_(args.rendezvous),
@@ -625,8 +672,7 @@ HPXExecutorState::HPXExecutorState(const Executor::Args& args,
       runner_(args.runner),
       sync_on_finish_(args.sync_on_finish),
       num_outstanding_ops_(0),
-      num_computed_ops_(0),
-      was_finished(false) {
+      num_computed_ops_(0) {
         promise_map_.clear();
         future_map_.clear();
 }
@@ -640,13 +686,12 @@ HPXExecutorState::~HPXExecutorState() {
 
 Status HPXExecutorState::BuildControlFlow(const Graph* g,
                               std::vector<std::vector<const Node*> >& loops) { 
-  const int num_nodes = g->num_node_ids();
-  loops.resize(num_nodes);
-  is_loop_node_.resize(num_nodes);
+  loops.resize(num_node_ids_);
+  is_loop_node_.resize(num_node_ids_);
   std::vector<Node*> parent_nodes;
-  parent_nodes.resize(num_nodes);
+  parent_nodes.resize(num_node_ids_);
   std::vector<bool> visited;
-  visited.resize(num_nodes);
+  visited.resize(num_node_ids_);
 
   std::deque<Node*> ready;
 
@@ -716,6 +761,9 @@ void HPXExecutorState::RunAsync(Executor::DoneCallback done) {
     return;
   }
   
+  num_node_ids_ = graph->num_node_ids();
+  num_nodes_ = graph->num_nodes();
+  
   BuildControlFlow(graph, iteration_nodes_);
   
   done_cb_ = done;
@@ -744,7 +792,25 @@ void HPXExecutorState::RunAsync(Executor::DoneCallback done) {
   Finish();*/  
 }
 
-void HPXExecutorState::Process(const Node* node, Entry* input_tensors,
+void HPXExecutorState::SignalNodeDone()
+{
+    std::unique_lock<std::mutex> lk(finish_mutex_);
+    num_outstanding_ops_--;
+    num_computed_ops_++;
+    
+    if (!was_finished)
+    {
+    if (num_outstanding_ops_ == 0 
+            && 
+          num_computed_ops_ >= num_nodes_)
+          {
+            was_finished = true;
+            Finish();
+          }          
+    } 
+}
+
+void HPXExecutorState::Process(const Node* node, EntryVector input_tensors,
                                 int64 iter_id, int64 base_iter, 
                                 std::string const& key_prefix, 
                                 int64 scheduled_usec) {                                  
@@ -753,19 +819,20 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors,
               + key_prefix + std::to_string(iter_id)];
    
   const NodeItem* nodes = impl_->nodes_;
-  
-  EntryVector outputs;
-  Status s;
   NodeExecStats* stats = nullptr;
+
+  
+  Status s;
   // Parameters passed to OpKernel::Compute.
   TensorValueVec inputs ;
   DeviceContextVec input_device_contexts;
   AllocatorAttributeVec input_alloc_attrs;
 
+  Device* device = impl_->params_.device;
+
   OpKernelContext::Params params;
   params.step_id = step_id_;
   params.frame_iter = FrameAndIter(0, iter_id);
-  Device* device = impl_->params_.device;
   params.device = device;
   params.log_memory = log_memory_;
   params.record_tensor_accesses = impl_->device_record_tensor_accesses_;
@@ -782,14 +849,23 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors,
   params.input_device_contexts = &input_device_contexts;
   params.input_alloc_attrs = &input_alloc_attrs;
   params.runner = &runner_;
-
-  bool completed = false;
+  
   
   const int id = node->id();
   const NodeItem& item = nodes[id];
 
+  bool launch_async = item.kernel_is_async;
+  
+  EntryVector outputs;
+  outputs.clear();
+  
+  Entry* first_input = input_tensors.data();
+  
+  TensorReferenceVector accessed_tensors;
+  DeviceContext* device_context = nullptr;
+
   // Set the device_context for this node id, if it exists.
-  if (id < device_context_map_.size()) {
+  if (id < static_cast<int>(device_context_map_.size())) {
     params.op_device_context = device_context_map_[id];
   }
  
@@ -826,16 +902,12 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors,
               << SummarizeNodeDef(node->def());
     }    
 
-    Entry* first_input = input_tensors;
-    outputs.clear();
 
-    TensorReferenceVector accessed_tensors;
-    DeviceContext* device_context = nullptr;
+  
     // Only execute this node if it is not dead or it is a send/recv
     // transfer node. For transfer nodes, we need to propagate the "dead"
     // bit even when the node is dead.
-    bool launched_asynchronously = false;
-    
+        
     // Prepares inputs.
     bool is_input_dead = false;
     if (first_input)
@@ -861,80 +933,143 @@ void HPXExecutorState::Process(const Node* node, Entry* input_tensors,
     params.output_attr_array =
         gtl::vector_as_array(&impl_->output_attrs_) + item.output_attr_start;
 
+    if (launch_async)
+    {
+      AsyncOpKernel* async = item.kernel->AsAsync();
+      DCHECK(async != nullptr);
+      AsyncState* state =
+          new AsyncState(params, is_dead, &item, first_input, stats);
+    
+      auto done = [this, state, iter_id, base_iter, key_prefix]() mutable
+      {
+        Device* device = impl_->params_.device;
+        NodeExecStats* stats = state->stats;
+
+        auto node = state->item->node;
+
+        if (stats) nodestats::SetOpEnd(stats);
+        
+        EntryVector outputs;
+        Status s = ProcessOutputs(*state->item, &state->ctx, &outputs, stats);
+        if (stats) nodestats::SetMemory(stats, &state->ctx);
+        
+        const int num_inputs = state->item->num_inputs;
+        for (int i = 0; i < num_inputs; ++i) {
+          (state->first_input + i)->ClearVal();
+        }
+            
+        if (s.ok())
+        {      
+          std::string out_prefix = key_prefix;
+                
+          // each (nested) loop appends iteration of parent to the prefix
+          if (IsEnter(node))
+            out_prefix += std::to_string(iter_id) + ";";
+                      
+          if (IsNextIteration(node))    
+            ++iter_id;
+          
+          // on exit of the (nested) loop, remove the last part of the prefix to send 
+          // data to parent loop
+          if (IsExit(node))
+          {
+            iter_id = base_iter; 
+            
+            if (key_prefix.size() == numDigits(base_iter) + 1)          
+              out_prefix = "";
+            else
+              out_prefix =
+                key_prefix.substr(0, key_prefix.size() - numDigits(iter_id) - 1);
+          }
+
+          PropagateOutputs(node, std::move(outputs), iter_id, base_iter, out_prefix, state->is_dead);
+          outputs.clear();
+        }
+        
+        if (s.ok() && impl_->device_record_tensor_accesses_) {
+          TensorReferenceVector accessed_tensors;
+          // Get the list of all tensors accessed during the execution
+          state->ctx.retrieve_accessed_tensors(&accessed_tensors);
+          if (stats) nodestats::SetReferencedTensors(stats, accessed_tensors);
+          // device_context is set above in synchronous computes
+          device->ConsumeListOfAccessedTensors(state->ctx.op_device_context(), accessed_tensors);
+        }
+          
+      delete state;
+      
+      SignalNodeDone();
+    };
+    
+    if (stats) nodestats::SetOpStart(stats);
+    device->ComputeAsync(CHECK_NOTNULL(async), &state->ctx, done);
+  }
+  else
+  {
     OpKernelContext ctx(&params, item.num_outputs);
-                    
     if (stats) nodestats::SetOpStart(stats);
     device->Compute(CHECK_NOTNULL(op_kernel), &ctx);
     if (stats) nodestats::SetOpEnd(stats);
     
-    s = ProcessOutputs(item, &ctx, &outputs, stats);
+    Status s = ProcessOutputs(item, &ctx, &outputs, stats);    
     if (s.ok() && impl_->device_record_tensor_accesses_) {
+
       // Get the list of all tensors accessed during the execution
       ctx.retrieve_accessed_tensors(&accessed_tensors);
       device_context = ctx.op_device_context();
     }
     if (stats) nodestats::SetMemory(stats, &ctx);
-    const int num_inputs = item.num_inputs;
-    for (int i = 0; i < num_inputs; ++i) {
-      (first_input + i)->ClearVal();
-    }
-        if (!accessed_tensors.empty()) {
-      if (stats) nodestats::SetReferencedTensors(stats, accessed_tensors);
-      // device_context is set above in synchronous computes
-      device->ConsumeListOfAccessedTensors(device_context, accessed_tensors);
-    }
-    if (stats) {
-      scheduled_usec = nodestats::NowInUsec();
-    }
+  }
   }
   else
   {    
     outputs.resize(node->num_outputs());
   }
   
-  if (s.ok())
-  {      
-    std::string out_prefix = key_prefix;
-          
-    // each (nested) loop appends iteration of parent to the prefix
-    if (IsEnter(node))
-      out_prefix += std::to_string(iter_id) + ";";
-                
-    if (IsNextIteration(node))    
-      ++iter_id;
-    
-    // on exit of the (nested) loop, remove the last part of the prefix to send 
-    // data to parent loop
-    if (IsExit(node))
-    {
-      iter_id = base_iter; 
-      
-      if (key_prefix.size() == numDigits(base_iter) + 1)          
-        out_prefix = "";
-      else
-        out_prefix =
-          key_prefix.substr(0, key_prefix.size() - numDigits(iter_id) - 1);
-    }
-          
-    PropagateOutputs(node, outputs, iter_id, base_iter, out_prefix, is_dead);
-    outputs.clear();
-  }
-     
-  std::unique_lock<std::mutex> lk(finish_mutex_);
-  num_outstanding_ops_--;
-  num_computed_ops_++;
-  
-  if (!was_finished)
+  if (!launch_async)
   {
-  if (num_outstanding_ops_ == 0 
-          && 
-        num_computed_ops_ >= impl_->graph_->num_node_ids())
-        {
-          was_finished = true;
-          Finish();
-        }
+     const int num_inputs = item.num_inputs;
+      for (int i = 0; i < num_inputs; ++i) {
+        (first_input + i)->ClearVal();
+      }
+    
+      std::string out_prefix = key_prefix;
+            
+      // each (nested) loop appends iteration of parent to the prefix
+      if (IsEnter(node))
+        out_prefix += std::to_string(iter_id) + ";";
+                  
+      if (IsNextIteration(node))    
+        ++iter_id;
+      
+      // on exit of the (nested) loop, remove the last part of the prefix to send 
+      // data to parent loop
+      if (IsExit(node))
+      {
+        iter_id = base_iter; 
         
-  }  
+        if (key_prefix.size() == numDigits(base_iter) + 1)          
+          out_prefix = "";
+        else
+          out_prefix =
+            key_prefix.substr(0, key_prefix.size() - numDigits(iter_id) - 1);
+      }
+            
+      PropagateOutputs(node, std::move(outputs), iter_id, base_iter, out_prefix, is_dead);
+
+      outputs.clear();
+      if (!accessed_tensors.empty()) {
+        if (stats) nodestats::SetReferencedTensors(stats, accessed_tensors);
+        // device_context is set above in synchronous computes
+        device->ConsumeListOfAccessedTensors(device_context, accessed_tensors);
+      }
+      if (stats) {
+        scheduled_usec = nodestats::NowInUsec();
+      }
+      
+      SignalNodeDone();
+  }
+  
+
   // notify main thread that computation is done
 //  maybe_finished.notify_one();    
 }
@@ -1036,7 +1171,7 @@ Status HPXExecutorState::ProcessOutputs(const NodeItem& item,
 
   // Get the device_context for this node id, if it exists.
   DeviceContext* device_context = nullptr;
-  if (node->id() < device_context_map_.size()) {
+  if (node->id() < static_cast<int>(device_context_map_.size())) {
     device_context = device_context_map_[node->id()];
   }
 
@@ -1181,7 +1316,7 @@ void HPXExecutorState::PropagateOutputs(const Node* node,
       else if (!is_dead)
       {
         is_set_map_[key] = true;
-        
+                
         if(e->IsControlEdge())
           promise_map_[key].set_value(Entry());
         else
@@ -1189,6 +1324,7 @@ void HPXExecutorState::PropagateOutputs(const Node* node,
           // schedule exit of the loop
           if (IsExit(e->dst()) && outputs[e->src_output()].has_value)
             Schedule(e->dst(), iter_id, base_iter, key_prefix);
+                      
           promise_map_[key].set_value(outputs[e->src_output()]);
         }       
       }          
@@ -1222,7 +1358,7 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node,
   
   {
   std::lock_guard<std::recursive_mutex> lk(map_mutex_);
-  
+    
   for (const Edge* e : node->in_edges())
   {        
     unsigned src_id = e->src()->id();
@@ -1230,7 +1366,7 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node,
     std::string key =
       key_prefix + std::to_string(step_id_) + ";" + std::to_string(iter_id) 
       + ";" + std::to_string(src_id) + ";" + std::to_string(dst_id);
-      
+
     if (!e->IsControlEdge())
     {
       unsigned src_slot = e->src_output();
@@ -1273,14 +1409,14 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node,
             > data)
           {
             auto inputs_futures = hpx::util::get<1>(data).get();
-            
-            std::vector<Entry> inputs;
+                        
+            EntryVector inputs;
             inputs.reserve(inputs_futures.size());
             
             for (auto& f : inputs_futures)
-              inputs.push_back(f.get());
-            
-            Process(node, inputs.data(), iter_id, base_iter, key_prefix,
+              inputs.push_back(std::move(f.get()));              
+                      
+            Process(node, std::move(inputs), iter_id, base_iter, key_prefix,
                       scheduled_usec);
           }
         )        
@@ -1311,7 +1447,7 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node,
                     
             inputs[result.index] = result.futures[result.index].get();
             
-            Process(node, inputs.data(), iter_id, base_iter, key_prefix,
+            Process(node, std::move(inputs), iter_id, base_iter, key_prefix,
                       scheduled_usec);
           }
         )        
@@ -1319,7 +1455,7 @@ hpx::future<void> HPXExecutorState::Schedule(const Node* node,
   }
   
 }
-
+/*
 const Tensor* HPXExecutorState::GetTensorValueForDump(const Entry& input) {
   if (!input.has_value) {
     return kEmptyTensor;
@@ -1328,7 +1464,7 @@ const Tensor* HPXExecutorState::GetTensorValueForDump(const Entry& input) {
   } else {
     return input.ref;
   }
-}
+}*/
 
 void HPXExecutorState::Finish() {
   mu_.lock();
@@ -1346,15 +1482,14 @@ void HPXExecutorState::Finish() {
   }
   delete this;
   CHECK(done_cb != nullptr);
+    
   runner([=]() { done_cb(status); });
 }
 
-void HPXExecutorImpl::RunAsync(const Args& args, DoneCallback done) {
+void HPXExecutorImpl::RunAsync(const Args& args, DoneCallback done) {  
   auto state = new HPXExecutorState(args, this);
-  
-  auto f = std::bind(&HPXExecutorState::RunAsync, state, done);
     
-  hpx::threads::run_as_hpx_thread(f);        
+  state->RunAsync(std::move(done));
 }
 }  // end namespace
 

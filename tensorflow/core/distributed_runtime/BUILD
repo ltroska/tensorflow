@@ -274,6 +274,7 @@ cc_library(
     deps = [
         ":rendezvous_mgr_interface",
         ":worker_env",
+        "//tensorflow/hpx/core:hpx_executor",
         "//tensorflow/core:core_cpu_internal",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",

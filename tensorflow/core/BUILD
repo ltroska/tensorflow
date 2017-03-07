@@ -1497,7 +1497,7 @@ cc_library(
     deps = [":lib_internal"],
 )
 
-tf_hpx_and_cuda_library(
+tf_cuda_library(
     name = "direct_session_internal",
     srcs = ["common_runtime/direct_session.cc"],
     hdrs = ["common_runtime/direct_session.h"],

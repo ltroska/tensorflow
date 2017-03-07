@@ -80,7 +80,7 @@ bool IsInitializationOp(const Node* node) {
 // Returns true iff the node is a transfer node.
 // TODO(tucker): merge with the DetailText function in session.cc
 // in a common location.
-/*bool SetTimelineLabel(const Node* node, NodeExecStats* node_stats) {
+bool SetTimelineLabel(const Node* node, NodeExecStats* node_stats) {
   bool is_transfer_node = false;
   string memory;
   for (auto& all : node_stats->memory()) {
@@ -126,7 +126,7 @@ bool IsInitializationOp(const Node* node) {
   }
   node_stats->set_timeline_label(text);
   return is_transfer_node;
-}*/
+}
 
 // Helper routines for collecting step stats.
 namespace nodestats {
@@ -146,10 +146,10 @@ void SetOpEnd(NodeExecStats* nt) {
   nt->set_op_end_rel_micros(NowInUsec() - nt->all_start_micros());
 }
 
-/*void SetAllEnd(NodeExecStats* nt) {
+void SetAllEnd(NodeExecStats* nt) {
   DCHECK_NE(nt->all_start_micros(), 0);
   nt->set_all_end_rel_micros(NowInUsec() - nt->all_start_micros());
-}*/
+}
 
 void SetOutput(NodeExecStats* nt, int slot, const Tensor* v) {
   DCHECK(v);
@@ -166,12 +166,24 @@ void SetMemory(NodeExecStats* nt, OpKernelContext* ctx) {
     // be dereferenced again after this statement
     auto sizes = allocator_pair.second->GetSizesAndUnRef();
     memory->set_allocator_name(allocator_pair.first->Name());
-    int tb = sizes.first;
-    memory->set_total_bytes(tb);
+    memory->set_total_bytes(std::get<0>(sizes));
     if (allocator_pair.first->TracksAllocationSizes()) {
-      memory->set_peak_bytes(sizes.second);
+      memory->set_peak_bytes(std::get<1>(sizes));
+      memory->set_live_bytes(std::get<2>(sizes));
     }
   }
+  auto* ms = nt->mutable_memory_stats();
+  ms->set_host_temp_memory_size(ctx->host_temp_memory_size());
+  ms->set_device_temp_memory_size(ctx->device_temp_memory_size());
+  for (const auto& alloc_id : ctx->host_persistent_alloc_ids()) {
+    ms->mutable_host_persistent_tensor_alloc_ids()->Add(alloc_id);
+  }
+  for (const auto& alloc_id : ctx->device_persistent_alloc_ids()) {
+    ms->mutable_device_persistent_tensor_alloc_ids()->Add(alloc_id);
+  }
+  ms->set_host_persistent_memory_size(ctx->host_persistent_memory_allocated());
+  ms->set_device_persistent_memory_size(
+      ctx->device_persistent_memory_allocated());
 }
 
 void SetReferencedTensors(NodeExecStats* nt,
@@ -198,70 +210,161 @@ unsigned numDigits(T number)
     return digits;
 }
 
+class HPXExecutorImpl;
+class GraphView;
+
+struct EdgeInfo {
+  int dst_id;
+  int output_slot : 31;
+  // true if this is the last info for output_slot in the EdgeInfo list.
+  bool is_last : 1;
+  int input_slot;
+};
+
 struct NodeItem {
+  NodeItem() {}
+
   // A graph node.
   const Node* node = nullptr;
 
   // The kernel for this node.
   OpKernel* kernel = nullptr;
 
-  bool kernel_is_expensive = false;  // True iff kernel->IsExpensive()
-  bool kernel_is_async = false;      // True iff kernel->AsAsync() != nullptr
-  bool is_merge = false;             // True iff IsMerge(node)
+  bool kernel_is_expensive : 1;  // True iff kernel->IsExpensive()
+  bool kernel_is_async : 1;      // True iff kernel->AsAsync() != nullptr
+  bool is_merge : 1;             // True iff IsMerge(node)
+  bool is_enter : 1;             // True iff IsEnter(node)
+  bool is_exit : 1;              // True iff IsExit(node)
+  bool is_control_trigger : 1;   // True iff IsControlTrigger(node)
+  bool is_sink : 1;              // True iff IsSink(node)
+  // True iff IsEnter(node) || IsExit(node) || IsNextIteration(node)
+  bool is_enter_exit_or_next_iter : 1;
 
   // Cached values of node->num_inputs() and node->num_outputs(), to
   // avoid levels of indirection.
   int num_inputs;
   int num_outputs;
 
-  // HPXExecutorImpl::output_attrs_[output_attr_start] is the 1st
-  // positional attribute for the 0th output of this node.
-  int output_attr_start = 0;
+  // ExecutorImpl::tensors_[input_start] is the 1st positional input
+  // for this node.
+  int input_start = 0;
+
+  // Number of output edges.
+  int num_output_edges;
+
+  const EdgeInfo* output_edge_list() const { return output_edge_base(); }
+
+  // ith output edge.
+  const EdgeInfo& output_edge(int i) const {
+    DCHECK_GE(i, 0);
+    DCHECK_LT(i, num_output_edges);
+    return output_edge_base()[i];
+  }
 
   DataType input_type(int i) const {
     DCHECK_LT(i, num_inputs);
-    return (i < 4) ? inlined_input_type[i] : node->input_type(i);
+    return static_cast<DataType>(input_type_base()[i]);
   }
   DataType output_type(int i) const {
     DCHECK_LT(i, num_outputs);
-    return (i < 4) ? inlined_output_type[i] : node->output_type(i);
+    return static_cast<DataType>(output_type_base()[i]);
   }
-  // Cache first 4 input and output types to reduce levels of indirection
-  DataType inlined_input_type[4];
-  DataType inlined_output_type[4];
+
+  // Return array of per-output allocator attributes.
+  const AllocatorAttributes* output_attrs() const { return output_attr_base(); }
+
+ private:
+  friend class GraphView;
+
+  // Variable length section starts immediately after *this
+  // (uint8 is enough for DataType).
+  //   EdgeInfo            out_edges[num_out_edges];
+  //   AllocatorAttributes output_attr[num_outputs];
+  //   uint8               input_type[num_inputs];
+  //   uint8               output_type[num_outputs];
+
+  // Return pointer to variable length section.
+  char* var() const {
+    return const_cast<char*>(reinterpret_cast<const char*>(this) +
+                             sizeof(NodeItem));
+  }
+
+  EdgeInfo* output_edge_base() const {
+    return reinterpret_cast<EdgeInfo*>(var());
+  }
+  AllocatorAttributes* output_attr_base() const {
+    return reinterpret_cast<AllocatorAttributes*>(var() + sizeof(EdgeInfo) *
+                                                              num_output_edges);
+  }
+  uint8* input_type_base() const {
+    return reinterpret_cast<uint8*>(var() +
+                                    sizeof(EdgeInfo) * num_output_edges +
+                                    sizeof(AllocatorAttributes) * num_outputs);
+  }
+  uint8* output_type_base() const {
+    return reinterpret_cast<uint8*>(
+        var() + sizeof(EdgeInfo) * num_output_edges +
+        sizeof(AllocatorAttributes) * num_outputs + sizeof(uint8) * num_inputs);
+  }
+
+  TF_DISALLOW_COPY_AND_ASSIGN(NodeItem);
 };
 
 typedef gtl::InlinedVector<TensorValue, 4> TensorValueVec;
 typedef gtl::InlinedVector<DeviceContext*, 4> DeviceContextVec;
 typedef gtl::InlinedVector<AllocatorAttributes, 4> AllocatorAttributeVec;
 
+// Immutable view of a Graph organized for efficient execution.
+class GraphView {
+ public:
+  GraphView() : space_(nullptr) {}
+  ~GraphView();
+
+  void Initialize(const Graph* g);
+  Status SetAllocAttrs(const Graph* g, const Device* device);
+
+  NodeItem* node(int id) const {
+    DCHECK_GE(id, 0);
+    DCHECK_LT(id, num_nodes_);
+    uint32 offset = node_offsets_[id];
+    return ((offset == kuint32max)
+                ? nullptr
+                : reinterpret_cast<NodeItem*>(space_ + node_offsets_[id]));
+  }
+
+ private:
+  char* InitializeNode(char* ptr, const Node* n);
+  size_t NodeItemBytes(const Node* n);
+
+  int32 num_nodes_ = 0;
+  uint32* node_offsets_ = nullptr;  // array of size "graph_.num_node_ids()"
+  // node_offsets_[id] holds the byte offset for node w/ "id" in space_
+
+  char* space_;  // NodeItem objects are allocated here
+
+  TF_DISALLOW_COPY_AND_ASSIGN(GraphView);
+};
+
 class HPXExecutorImpl : public Executor {
  public:
   HPXExecutorImpl(const LocalExecutorParams& p, const Graph* g)
-      : params_(p), graph_(g) {
+      : params_(p), graph_(g), gview_() {
     CHECK(p.create_kernel != nullptr);
     CHECK(p.delete_kernel != nullptr);
   }
 
   ~HPXExecutorImpl() override {
     for (int i = 0; i < graph_->num_node_ids(); i++) {
-      params_.delete_kernel(nodes_[i].kernel);
+      NodeItem* item = gview_.node(i);
+      if (item != nullptr) {
+        params_.delete_kernel(item->kernel);
+      }
     }
 
-    delete[] nodes_;
     delete graph_;
   }
 
   Status Initialize();
-
-  // Infer memory allocation attributes of a node n's output,
-  // based on its use node dst.  Note that dst might not be directly
-  // connected to n by a single edge, but might be a downstream
-  // consumer of n's output by reference.  *attr is updated with any
-  // necessary attributes.
-  Status InferAllocAttr(const Node* n, const Node* dst,
-                        const DeviceNameUtils::ParsedName& local_dev_name,
-                        AllocatorAttributes* attr);
 
   // Process all Nodes in the current graph, attempting to infer the
   // memory allocation attributes to be used wherever they may allocate
@@ -276,9 +379,7 @@ class HPXExecutorImpl : public Executor {
   // Owned.
   LocalExecutorParams params_;
   const Graph* graph_;
-  NodeItem* nodes_ = nullptr;     // array of size "graph_.num_node_ids()"
-  int total_output_tensors_ = 0;  // == sum(nodes_[*].num_outputs())
-  int total_input_tensors_ = 0;  // == sum(nodes_[*].num_outputs())
+  GraphView gview_;
 
   // A cached value of params_
   bool device_record_tensor_accesses_ = false;
@@ -288,14 +389,161 @@ class HPXExecutorImpl : public Executor {
   TF_DISALLOW_COPY_AND_ASSIGN(HPXExecutorImpl);
 };
 
+// Infer memory allocation attributes of a node n's output,
+// based on its use node dst.  Note that dst might not be directly
+// connected to n by a single edge, but might be a downstream
+// consumer of n's output by reference.  *attr is updated with any
+// necessary attributes.
+Status InferAllocAttr(const Node* n, const Node* dst,
+                      const DeviceNameUtils::ParsedName& local_dev_name,
+                      AllocatorAttributes* attr);
+
+GraphView::~GraphView() {
+  static_assert(std::is_trivially_destructible<AllocatorAttributes>::value,
+                "Update code if AllocatorAttributes gains a destructor");
+  static_assert(std::is_trivially_destructible<EdgeInfo>::value,
+                "Update code if EdgeInfo gains a destructor");
+  for (int i = 0; i < num_nodes_; i++) {
+    NodeItem* n = node(i);
+    if (n != nullptr) {
+      n->NodeItem::~NodeItem();
+      // Memory for "n" itself is held in space_ & gets cleaned up below
+    }
+  }
+  delete[] node_offsets_;
+  delete[] space_;
+}
+
+size_t GraphView::NodeItemBytes(const Node* n) {
+  const int num_output_edges = n->out_edges().size();
+  const int num_inputs = n->num_inputs();
+  const int num_outputs = n->num_outputs();
+
+  // Compute number of bytes needed for NodeItem and variable length data.
+  // We do not subtract sizeof(var) since num_inputs/num_outputs might
+  // both be zero.
+  const size_t raw_bytes =
+      sizeof(NodeItem)                             // Fixed
+      + num_output_edges * sizeof(EdgeInfo)        // output_edges[...]
+      + num_outputs * sizeof(AllocatorAttributes)  // output_attr[...]
+      + num_inputs * sizeof(uint8)                 // input_type[num_inputs]
+      + num_outputs * sizeof(uint8);               // output_type[num_outputs]
+  static constexpr size_t kItemAlignment = sizeof(NodeItem*);
+  static_assert(kItemAlignment % alignof(NodeItem) == 0,
+                "NodeItem must be aligned with kItemAlignment");
+  static_assert(kItemAlignment % alignof(EdgeInfo) == 0,
+                "EdgeInfo must be aligned with kItemAlignment");
+  static_assert(kItemAlignment % alignof(AllocatorAttributes) == 0,
+                "AllocatorAttributes must be aligned with kItemAlignment");
+  static_assert(sizeof(NodeItem) % alignof(EdgeInfo) == 0,
+                "NodeItem must be aligned with EdgeInfo");
+  static_assert(sizeof(NodeItem) % alignof(AllocatorAttributes) == 0,
+                "NodeItem must be aligned with AllocatorAttributes");
+  static_assert(sizeof(EdgeInfo) % alignof(AllocatorAttributes) == 0,
+                "EdgeInfo must be aligned with AllocatorAttributes");
+  const size_t bytes =
+      ((raw_bytes + kItemAlignment - 1) / kItemAlignment) * kItemAlignment;
+  return bytes;
+}
+
+char* GraphView::InitializeNode(char* ptr, const Node* n) {
+  const int id = n->id();
+  CHECK(node_offsets_[id] == kuint32max);  // Initial value in constructor
+
+  const size_t bytes = NodeItemBytes(n);
+  constexpr size_t kItemAlignment = sizeof(NodeItem*);
+  CHECK_EQ(reinterpret_cast<uintptr_t>(ptr) % kItemAlignment, 0);
+  NodeItem* item = reinterpret_cast<NodeItem*>(ptr);
+
+  // We store a 32-bit offset relative to the beginning of space_, so that we
+  // only need an array of 32-bit values to map from node id to the NodeItem*,
+  // (versus 64 bits on most machines if we just stored an array of NodeItem*
+  // pointers). Casting to int64 is needed on 32bit CPU to avoid comparing
+  // values as "int" vs "size_t" in CHECK_LE.
+  CHECK_LE(static_cast<int64>(ptr - space_), kuint32max);
+  const uint32 offset = ptr - space_;
+  node_offsets_[id] = offset;
+  ptr += bytes;
+
+  const int num_output_edges = n->out_edges().size();
+  const int num_inputs = n->num_inputs();
+  const int num_outputs = n->num_outputs();
+
+  new (item) NodeItem();
+  item->num_inputs = num_inputs;
+  item->num_outputs = num_outputs;
+  item->num_output_edges = num_output_edges;
+
+  // Fill output edges.
+  // Keep track of the last EdgeInfo in the EdngeInfo array that references
+  // a given output slot.  For all but the last, we need to do a copy of the
+  // Tensor when propagating results downstream in the graph, but for the
+  // last one, we can just do a move of the Tensor object to propagate it.
+  gtl::InlinedVector<EdgeInfo*, 4> last_indices(num_outputs, nullptr);
+  EdgeInfo* dst_edge = item->output_edge_base();
+  for (auto e : n->out_edges()) {
+    dst_edge->dst_id = e->dst()->id();
+    CHECK_LE(e->src_output(), ((int32)0x3FFFFFFF));  // Must fit in 31 bits
+    dst_edge->output_slot = e->src_output();
+    dst_edge->is_last = false;
+    const int output_slot = dst_edge->output_slot;
+    if (output_slot >= 0) {
+      last_indices[output_slot] = dst_edge;
+    }
+    dst_edge->input_slot = e->dst_input();
+    dst_edge++;
+  }
+  for (EdgeInfo* edge_info : last_indices) {
+    if (edge_info != nullptr) {
+      edge_info->is_last = true;
+    }
+  }
+
+  AllocatorAttributes* output_attrs = item->output_attr_base();
+  for (int i = 0; i < num_outputs; i++) {
+    new (&output_attrs[i]) AllocatorAttributes();
+  }
+
+  DCHECK_LT(DataType_MAX, 255);  // Must fit in uint8
+  uint8* input_types = item->input_type_base();
+  for (int i = 0; i < num_inputs; i++) {
+    input_types[i] = static_cast<uint8>(n->input_type(i));
+    DCHECK_EQ(item->input_type(i), n->input_type(i));
+  }
+
+  uint8* output_types = item->output_type_base();
+  for (int i = 0; i < num_outputs; i++) {
+    output_types[i] = static_cast<uint8>(n->output_type(i));
+    DCHECK_EQ(item->output_type(i), n->output_type(i));
+  }
+  return ptr;
+}
+
+void GraphView::Initialize(const Graph* g) {
+  CHECK(node_offsets_ == nullptr);
+  const int num_nodes = g->num_node_ids();
+  num_nodes_ = num_nodes;
+  size_t total_bytes = 0;
+  for (const Node* n : g->nodes()) {
+    total_bytes += NodeItemBytes(n);
+  }
+
+  node_offsets_ = new uint32[num_nodes];
+  for (int i = 0; i < num_nodes; i++) {
+    node_offsets_[i] = kuint32max;
+  }
+
+  space_ = new char[total_bytes];  // NodeItem objects are allocated here
+  char* ptr = space_;
+  for (const Node* n : g->nodes()) {
+    ptr = InitializeNode(ptr, n);
+  }
+  CHECK_EQ(ptr, space_ + total_bytes);
+}
+
 Status HPXExecutorImpl::Initialize() {
-  const int num_nodes = graph_->num_node_ids();
-  delete[] nodes_;
-  nodes_ = new NodeItem[num_nodes];
-
-  total_output_tensors_ = 0;
-  total_input_tensors_ = 0;
-
+  gview_.Initialize(graph_);
+  
   // Cache this value so we make this virtual function call once, rather
   // that O(# steps * # nodes per step) times.
   device_record_tensor_accesses_ =
@@ -306,22 +554,18 @@ Status HPXExecutorImpl::Initialize() {
   for (const Node* n : graph_->nodes()) {
     const int id = n->id();
 
-    NodeItem* item = &nodes_[id];
+    NodeItem* item = gview_.node(id);
     item->node = n;
-    item->num_inputs = n->num_inputs();
-    item->num_outputs = n->num_outputs();
+    
+   /* item->num_inputs = n->num_inputs();
+    item->num_outputs = n->num_outputs();*/
 
-    for (int i = 0; i < std::min(4, item->num_inputs); i++) {
+/*    for (int i = 0; i < std::min(4, item->num_inputs); i++) {
       item->inlined_input_type[i] = n->input_type(i);
     }
     for (int i = 0; i < std::min(4, item->num_outputs); i++) {
       item->inlined_output_type[i] = n->output_type(i);
-    }
-
-    total_input_tensors_ += n->num_inputs();
-
-    item->output_attr_start = total_output_tensors_;
-    total_output_tensors_ += n->num_outputs();
+    }*/
 
     Status s = params_.create_kernel(n->def(), &item->kernel);
     if (!s.ok()) {
@@ -334,50 +578,55 @@ Status HPXExecutorImpl::Initialize() {
     item->kernel_is_expensive = item->kernel->IsExpensive();
     item->kernel_is_async = (item->kernel->AsAsync() != nullptr);
     item->is_merge = IsMerge(n);
+    item->is_enter = IsEnter(n);
+    item->is_exit = IsExit(n);
+    item->is_control_trigger = IsControlTrigger(n);
+    item->is_sink = IsSink(n);
+    item->is_enter_exit_or_next_iter =
+        (IsEnter(n) || IsExit(n) || IsNextIteration(n));
   }
   
-  return SetAllocAttrs();
+  return gview_.SetAllocAttrs(graph_, params_.device);
 }
 
-Status HPXExecutorImpl::SetAllocAttrs() {
+Status GraphView::SetAllocAttrs(const Graph* g, const Device* device) {
   Status s;
-  Device* device = params_.device;
   DeviceNameUtils::ParsedName local_dev_name = device->parsed_name();
 
-  output_attrs_.resize(total_output_tensors_);
-  for (const Node* n : graph_->nodes()) {
-    NodeItem* item = &nodes_[n->id()];
-    const int base_index = item->output_attr_start;
+  for (const Node* n : g->nodes()) {
+    NodeItem* item = node(n->id());
+    AllocatorAttributes* attrs = item->output_attr_base();
+
     // Examine the out edges of each node looking for special use
     // cases that may affect memory allocation attributes.
     for (auto e : n->out_edges()) {
-      const int index = e->src_output();
-      AllocatorAttributes attr;
-      s = InferAllocAttr(n, e->dst(), local_dev_name, &attr);
-      if (!s.ok()) return s;
-      if (attr.value != 0) {
-        if (!e->IsControlEdge()) {
-          output_attrs_[base_index + index].Merge(attr);
+      if (!e->IsControlEdge()) {
+        AllocatorAttributes attr;
+        s = InferAllocAttr(n, e->dst(), local_dev_name, &attr);
+        if (!s.ok()) return s;
+        if (attr.value != 0) {
+          attrs[e->src_output()].Merge(attr);
         }
       }
     }
 
     for (int out = 0; out < n->num_outputs(); out++) {
-      OpKernel* op_kernel = item->kernel;
+      const OpKernel* op_kernel = item->kernel;
       DCHECK_LT(out, op_kernel->output_memory_types().size());
       bool on_host = op_kernel->output_memory_types()[out] == HOST_MEMORY;
-      AllocatorAttributes h;
-      h.set_on_host(on_host);
-      output_attrs_[base_index + out].Merge(h);
+      if (on_host) {
+        AllocatorAttributes h;
+        h.set_on_host(on_host);
+        attrs[out].Merge(h);
+      }
     }
   }
   return s;
 }
 
-Status HPXExecutorImpl::InferAllocAttr(
-    const Node* n, const Node* dst,
-    const DeviceNameUtils::ParsedName& local_dev_name,
-    AllocatorAttributes* attr) {
+Status InferAllocAttr(const Node* n, const Node* dst,
+                      const DeviceNameUtils::ParsedName& local_dev_name,
+                      AllocatorAttributes* attr) {
   Status s;
   // Note that it's possible for *n to be a Recv and *dst to be a Send,
   // so these two cases are not mutually exclusive.
@@ -431,11 +680,6 @@ Status HPXExecutorImpl::InferAllocAttr(
     } else {
       VLOG(2) << "default alloc case local type " << local_dev_name.type
               << " remote type " << parsed_dst_name.type;
-    }
-  } else if (dst->type_string() == "ToFloat") {
-    for (auto e : dst->out_edges()) {
-      s = InferAllocAttr(n, e->dst(), local_dev_name, attr);
-      if (!s.ok()) return s;
     }
   }
   return s;
@@ -597,8 +841,8 @@ class HPXExecutorState {
 
   // After processing the outputs, propagates the outputs to their dsts.
   void PropagateOutputs(const Node* node, const EntryVector& outputs,
-                          const int64 iter_id, const int64 base_iter,
-                          std::string const& key_prefix, const bool is_dead); 
+                          int64 iter_id, const int64 base_iter,
+                          std::string key_prefix, const bool is_dead); 
                         
   Status BuildControlFlow(const Graph* g, 
                             std::vector<std::vector<const Node*> >& loops);
@@ -767,29 +1011,13 @@ void HPXExecutorState::RunAsync(Executor::DoneCallback done) {
   BuildControlFlow(graph, iteration_nodes_);
   
   done_cb_ = done;
-  // Schedule to run all the ready ops in thread pool.
   
   constexpr int64 iter_id = 0;
   constexpr int64 base_iter = 0;
   
   for (const Node* n : graph->nodes())
     if (!is_loop_node_[n->id()])
-       Schedule(n, iter_id, base_iter, ""); 
-
-
-/*  std::unique_lock<std::mutex> lk(finish_mutex_);
-
-  maybe_finished.wait(lk,
-    [this]()
-    {
-      return 
-        num_outstanding_ops_ == 0 
-          && 
-        num_computed_ops_ >= impl_->graph_->num_node_ids(); 
-    }
-  );
-
-  Finish();*/  
+       Schedule(n, iter_id, base_iter, "");  
 }
 
 void HPXExecutorState::SignalNodeDone()
@@ -813,25 +1041,24 @@ void HPXExecutorState::SignalNodeDone()
 void HPXExecutorState::Process(const Node* node, EntryVector input_tensors,
                                 int64 iter_id, int64 base_iter, 
                                 std::string const& key_prefix, 
-                                int64 scheduled_usec) {                                  
+                                int64 scheduled_usec) {   
+  const GraphView& gview = impl_->gview_;
+                               
   bool is_dead =
     is_dead_[std::to_string(node->id()) + ";" 
               + key_prefix + std::to_string(iter_id)];
    
-  const NodeItem* nodes = impl_->nodes_;
-  NodeExecStats* stats = nullptr;
+/*  const NodeItem* nodes = impl_->nodes_;
+  NodeExecStats* stats = nullptr;*/
 
-  
-  Status s;
-  // Parameters passed to OpKernel::Compute.
+    // Parameters passed to OpKernel::Compute.
   TensorValueVec inputs ;
   DeviceContextVec input_device_contexts;
   AllocatorAttributeVec input_alloc_attrs;
 
-  Device* device = impl_->params_.device;
-
   OpKernelContext::Params params;
   params.step_id = step_id_;
+  Device* device = impl_->params_.device;
   params.frame_iter = FrameAndIter(0, iter_id);
   params.device = device;
   params.log_memory = log_memory_;
@@ -850,19 +1077,12 @@ void HPXExecutorState::Process(const Node* node, EntryVector input_tensors,
   params.input_alloc_attrs = &input_alloc_attrs;
   params.runner = &runner_;
   
+  Status s;
+  NodeExecStats* stats = nullptr;
+  EntryVector outputs;  
   
   const int id = node->id();
-  const NodeItem& item = nodes[id];
-
-  bool launch_async = item.kernel_is_async;
-  
-  EntryVector outputs;
-  outputs.clear();
-  
-  Entry* first_input = input_tensors.data();
-  
-  TensorReferenceVector accessed_tensors;
-  DeviceContext* device_context = nullptr;
+  const NodeItem& item = *gview.node(id);
 
   // Set the device_context for this node id, if it exists.
   if (id < static_cast<int>(device_context_map_.size())) {
@@ -871,7 +1091,7 @@ void HPXExecutorState::Process(const Node* node, EntryVector input_tensors,
  
   params.track_allocations = false;
   stats = nullptr;
-  if (stats_collector_) {
+  if (stats_collector_ && !is_dead) {
     // track allocations if and only if we are collecting statistics
     params.track_allocations = true;
     stats = new NodeExecStats;
@@ -894,20 +1114,23 @@ void HPXExecutorState::Process(const Node* node, EntryVector input_tensors,
   // reschedule loop nodes for next iteration
   if(is_loop_node_[node->id()] && !IsExit(node) && !is_dead)
     Schedule(node, iter_id + 1, base_iter, key_prefix);
-
-  if (!is_dead)
-  {
-    if (vlog_) {
-      VLOG(1) << "Process node: " << id << " step " << params.step_id << " "
-              << SummarizeNodeDef(node->def());
-    }    
-
-
+    
+  if (vlog_) {
+    VLOG(1) << "Process node: " << id << " step " << params.step_id << " "
+            << SummarizeNodeDef(node->def());
+  }   
   
-    // Only execute this node if it is not dead or it is a send/recv
-    // transfer node. For transfer nodes, we need to propagate the "dead"
-    // bit even when the node is dead.
-        
+  Entry* first_input = input_tensors.data();
+  
+  outputs.clear();
+  
+  TensorReferenceVector accessed_tensors;
+  DeviceContext* device_context = nullptr;
+  
+  bool launch_async = item.kernel_is_async;
+ 
+  if (!is_dead || IsTransferNode(node))
+  {        
     // Prepares inputs.
     bool is_input_dead = false;
     if (first_input)
@@ -928,10 +1151,8 @@ void HPXExecutorState::Process(const Node* node, EntryVector input_tensors,
     OpKernel* op_kernel = item.kernel;
     params.op_kernel = op_kernel;
     params.frame_iter = FrameAndIter(0, iter_id);
-  
     params.is_input_dead = is_input_dead;
-    params.output_attr_array =
-        gtl::vector_as_array(&impl_->output_attrs_) + item.output_attr_start;
+    params.output_attr_array = item.output_attrs();
 
     if (launch_async)
     {
@@ -943,9 +1164,16 @@ void HPXExecutorState::Process(const Node* node, EntryVector input_tensors,
       auto done = [this, state, iter_id, base_iter, key_prefix]() mutable
       {
         Device* device = impl_->params_.device;
+        
+        // Shorthands
         NodeExecStats* stats = state->stats;
-
+        Entry* first_input = state->first_input;
         auto node = state->item->node;
+
+        if (vlog_) {
+          VLOG(2) << this << " Async kernel done: "
+                  << SummarizeNodeDef(node->def());
+        }
 
         if (stats) nodestats::SetOpEnd(stats);
         
@@ -955,44 +1183,22 @@ void HPXExecutorState::Process(const Node* node, EntryVector input_tensors,
         
         const int num_inputs = state->item->num_inputs;
         for (int i = 0; i < num_inputs; ++i) {
-          (state->first_input + i)->ClearVal();
+          (first_input + i)->ClearVal();
         }
             
-        if (s.ok())
-        {      
-          std::string out_prefix = key_prefix;
-                
-          // each (nested) loop appends iteration of parent to the prefix
-          if (IsEnter(node))
-            out_prefix += std::to_string(iter_id) + ";";
-                      
-          if (IsNextIteration(node))    
-            ++iter_id;
-          
-          // on exit of the (nested) loop, remove the last part of the prefix to send 
-          // data to parent loop
-          if (IsExit(node))
-          {
-            iter_id = base_iter; 
-            
-            if (key_prefix.size() == numDigits(base_iter) + 1)          
-              out_prefix = "";
-            else
-              out_prefix =
-                key_prefix.substr(0, key_prefix.size() - numDigits(iter_id) - 1);
-          }
-
-          PropagateOutputs(node, std::move(outputs), iter_id, base_iter, out_prefix, state->is_dead);
-          outputs.clear();
+        if (s.ok()) {      
+          PropagateOutputs(node, std::move(outputs), iter_id, base_iter, key_prefix, state->is_dead);
         }
-        
+        outputs.clear();
+      
         if (s.ok() && impl_->device_record_tensor_accesses_) {
-          TensorReferenceVector accessed_tensors;
           // Get the list of all tensors accessed during the execution
-          state->ctx.retrieve_accessed_tensors(&accessed_tensors);
-          if (stats) nodestats::SetReferencedTensors(stats, accessed_tensors);
-          // device_context is set above in synchronous computes
-          device->ConsumeListOfAccessedTensors(state->ctx.op_device_context(), accessed_tensors);
+          TensorReferenceVector accessed;
+          state->ctx.retrieve_accessed_tensors(&accessed);
+          if (stats) nodestats::SetReferencedTensors(stats, accessed);
+          // callee takes ownership of the vector
+          device->ConsumeListOfAccessedTensors(state->ctx.op_device_context(),
+                                               accessed);
         }
           
       delete state;
@@ -1012,7 +1218,6 @@ void HPXExecutorState::Process(const Node* node, EntryVector input_tensors,
     
     Status s = ProcessOutputs(item, &ctx, &outputs, stats);    
     if (s.ok() && impl_->device_record_tensor_accesses_) {
-
       // Get the list of all tensors accessed during the execution
       ctx.retrieve_accessed_tensors(&accessed_tensors);
       device_context = ctx.op_device_context();
@@ -1027,46 +1232,26 @@ void HPXExecutorState::Process(const Node* node, EntryVector input_tensors,
   
   if (!launch_async)
   {
-     const int num_inputs = item.num_inputs;
-      for (int i = 0; i < num_inputs; ++i) {
-        (first_input + i)->ClearVal();
-      }
+    const int num_inputs = item.num_inputs;
+    for (int i = 0; i < num_inputs; ++i) {
+      (first_input + i)->ClearVal();
+    }
     
-      std::string out_prefix = key_prefix;
-            
-      // each (nested) loop appends iteration of parent to the prefix
-      if (IsEnter(node))
-        out_prefix += std::to_string(iter_id) + ";";
-                  
-      if (IsNextIteration(node))    
-        ++iter_id;
-      
-      // on exit of the (nested) loop, remove the last part of the prefix to send 
-      // data to parent loop
-      if (IsExit(node))
-      {
-        iter_id = base_iter; 
-        
-        if (key_prefix.size() == numDigits(base_iter) + 1)          
-          out_prefix = "";
-        else
-          out_prefix =
-            key_prefix.substr(0, key_prefix.size() - numDigits(iter_id) - 1);
-      }
-            
-      PropagateOutputs(node, std::move(outputs), iter_id, base_iter, out_prefix, is_dead);
-
-      outputs.clear();
-      if (!accessed_tensors.empty()) {
-        if (stats) nodestats::SetReferencedTensors(stats, accessed_tensors);
-        // device_context is set above in synchronous computes
-        device->ConsumeListOfAccessedTensors(device_context, accessed_tensors);
-      }
-      if (stats) {
-        scheduled_usec = nodestats::NowInUsec();
-      }
-      
-      SignalNodeDone();
+    if (s.ok()) {
+      PropagateOutputs(node, std::move(outputs), iter_id, base_iter, key_prefix, is_dead);
+    }
+    outputs.clear();
+    
+    if (!accessed_tensors.empty()) {
+      if (stats) nodestats::SetReferencedTensors(stats, accessed_tensors);
+      // device_context is set above in synchronous computes
+      device->ConsumeListOfAccessedTensors(device_context, accessed_tensors);
+    }
+    if (stats) {
+      scheduled_usec = nodestats::NowInUsec();
+    }
+    
+    SignalNodeDone();
   }
   
 
@@ -1079,76 +1264,76 @@ Status HPXExecutorState::PrepareInputs(const NodeItem& item, Entry* first_input,
                                         DeviceContextVec* input_device_contexts,
                                         AllocatorAttributeVec* input_alloc_attrs,
                                         bool* is_input_dead) {
-      const Node* node = item.node;
+  const Node* node = item.node;
 
-      inputs->clear();
-      inputs->resize(item.num_inputs);
-      input_device_contexts->clear();
-      input_device_contexts->resize(item.num_inputs);
-      input_alloc_attrs->clear();
-      input_alloc_attrs->resize(item.num_inputs);
+  inputs->clear();
+  inputs->resize(item.num_inputs);
+  input_device_contexts->clear();
+  input_device_contexts->resize(item.num_inputs);
+  input_alloc_attrs->clear();
+  input_alloc_attrs->resize(item.num_inputs);
 
-      *is_input_dead = false;
+  *is_input_dead = false;
 
-      bool is_merge = item.is_merge;
-      for (int i = 0; i < item.num_inputs; ++i) {
-        const bool expect_ref = IsRefType(item.input_type(i));
-        Entry* entry = first_input + i;
-        (*input_device_contexts)[i] = entry->device_context;
-        (*input_alloc_attrs)[i] = entry->alloc_attr;
+  bool is_merge = item.is_merge;
+  for (int i = 0; i < item.num_inputs; ++i) {
+    const bool expect_ref = IsRefType(item.input_type(i));
+    Entry* entry = first_input + i;
+    (*input_device_contexts)[i] = entry->device_context;
+    (*input_alloc_attrs)[i] = entry->alloc_attr;
 
-        // i-th input.
-        TensorValue* inp = &(*inputs)[i];
+    // i-th input.
+    TensorValue* inp = &(*inputs)[i];
 
-        // Only merge and transfer nodes can have no-value inputs.
-        if (!entry->has_value) {
-          if (!is_merge) {
-            DCHECK(IsTransferNode(node));
-            DCHECK(!entry->val_field_is_set);
-            entry->has_value = true;
-            entry->val_field_is_set = true;
-            entry->val.Init(*kEmptyTensor);
-            inp->tensor = entry->val.get();
-            *is_input_dead = true;
-          }
-          continue;
-        }
-        if (entry->ref == nullptr) {
-          if (expect_ref) {
-            return AttachDef(
-                errors::InvalidArgument(i, "-th input expects a ref type"),
-                item.kernel->def());
-          }
-          inp->tensor = entry->val.get();
-        } else {
-          if (!entry->ref->IsInitialized() && !IsInitializationOp(item.node)) {
-            return AttachDef(
-                errors::FailedPrecondition("Attempting to use uninitialized value ",
-                                           item.kernel->def().input(i)),
-                item.kernel->def());
-          }
-          if (expect_ref) {
-            inp->mutex_if_ref = entry->ref_mu;
-            inp->tensor = entry->ref;
-          } else {
-            // Automatically deref the tensor ref when the op expects a
-            // tensor but is given a ref to a tensor.  Need to deref it
-            // under the mutex.
-            {
-              mutex_lock l(*(entry->ref_mu));
-              DCHECK(!entry->val_field_is_set);
-              entry->val.Init(*entry->ref);
-              entry->val_field_is_set = true;
-            }
-            entry->ref = nullptr;
-            entry->ref_mu = nullptr;
-
-            inp->tensor = entry->val.get();
-          }
-        }
+    // Only merge and transfer nodes can have no-value inputs.
+    if (!entry->has_value) {
+      if (!is_merge) {
+        DCHECK(IsTransferNode(node));
+        DCHECK(!entry->val_field_is_set);
+        entry->has_value = true;
+        entry->val_field_is_set = true;
+        entry->val.Init(*kEmptyTensor);
+        inp->tensor = entry->val.get();
+        *is_input_dead = true;
       }
-      return Status::OK();
+      continue;
     }
+    if (entry->ref == nullptr) {
+      if (expect_ref) {
+        return AttachDef(
+            errors::InvalidArgument(i, "-th input expects a ref type"),
+            item.kernel->def());
+      }
+      inp->tensor = entry->val.get();
+    } else {
+      if (!entry->ref->IsInitialized() && !IsInitializationOp(item.node)) {
+        return AttachDef(
+            errors::FailedPrecondition("Attempting to use uninitialized value ",
+                                       item.kernel->def().input(i)),
+            item.kernel->def());
+      }
+      if (expect_ref) {
+        inp->mutex_if_ref = entry->ref_mu;
+        inp->tensor = entry->ref;
+      } else {
+        // Automatically deref the tensor ref when the op expects a
+        // tensor but is given a ref to a tensor.  Need to deref it
+        // under the mutex.
+        {
+          mutex_lock l(*(entry->ref_mu));
+          DCHECK(!entry->val_field_is_set);
+          entry->val.Init(*entry->ref);
+          entry->val_field_is_set = true;
+        }
+        entry->ref = nullptr;
+        entry->ref_mu = nullptr;
+
+        inp->tensor = entry->val.get();
+      }
+    }
+  }
+  return Status::OK();
+}
 
 Status HPXExecutorState::ProcessOutputs(const NodeItem& item,
                                           OpKernelContext* ctx,
@@ -1171,7 +1356,7 @@ Status HPXExecutorState::ProcessOutputs(const NodeItem& item,
 
   // Get the device_context for this node id, if it exists.
   DeviceContext* device_context = nullptr;
-  if (node->id() < static_cast<int>(device_context_map_.size())) {
+  if (node->id() < device_context_map_.size()) {
     device_context = device_context_map_[node->id()];
   }
 
@@ -1179,7 +1364,8 @@ Status HPXExecutorState::ProcessOutputs(const NodeItem& item,
   if (item.num_outputs == 0 && impl_->params_.node_outputs_cb != nullptr) {
     // If the node has no output, invoke the callback with output slot set to
     // -1, signifying that this is a no-output node.
-    impl_->params_.node_outputs_cb(item.node->name(), -1, nullptr, false, ctx);
+    s.Update(impl_->params_.node_outputs_cb(item.node->name(), -1, nullptr,
+                                            false, ctx));
   }
 
   for (int i = 0; i < item.num_outputs; ++i) {
@@ -1222,10 +1408,11 @@ Status HPXExecutorState::ProcessOutputs(const NodeItem& item,
                                           ctx->step_id(), i, to_log);
           }
 
-          // Experimental: debugger (tfdb) access to intermediate node outputs.
+          // Experimental: debugger (tfdb) access to intermediate node
+          // outputs.
           if (impl_->params_.node_outputs_cb != nullptr) {
-            impl_->params_.node_outputs_cb(item.node->name(), i, out->ref, true,
-                                           ctx);
+            s.Update(impl_->params_.node_outputs_cb(item.node->name(), i,
+                                                    out->ref, true, ctx));
           }
         } else {
           // NOTE that std::move is used here, so val.tensor goes to
@@ -1241,8 +1428,8 @@ Status HPXExecutorState::ProcessOutputs(const NodeItem& item,
 
           // Experimental: debugger access to intermediate node outputs.
           if (impl_->params_.node_outputs_cb != nullptr) {
-            impl_->params_.node_outputs_cb(item.node->name(), i, out->val.get(),
-                                           false, ctx);
+            s.Update(impl_->params_.node_outputs_cb(
+                item.node->name(), i, out->val.get(), false, ctx));
           }
         }
       } else {
@@ -1264,10 +1451,30 @@ Status HPXExecutorState::ProcessOutputs(const NodeItem& item,
 
 void HPXExecutorState::PropagateOutputs(const Node* node,
                                           const EntryVector& outputs,
-                                          const int64 iter_id,
+                                          int64 iter_id,
                                           const int64 base_iter,
-                                          std::string const& key_prefix,
-                                          const bool is_dead) {      
+                                          std::string key_prefix,
+                                          const bool is_dead) {             
+  // each (nested) loop appends iteration of parent to the prefix
+  if (IsEnter(node))
+    key_prefix += std::to_string(iter_id) + ";";
+              
+  if (IsNextIteration(node))    
+    ++iter_id;
+  
+  // on exit of the (nested) loop, remove the last part of the prefix to send 
+  // data to parent loop
+  if (IsExit(node))
+  {
+    iter_id = base_iter; 
+    
+    if (key_prefix.size() == numDigits(base_iter) + 1)          
+      key_prefix = "";
+    else
+      key_prefix =
+        key_prefix.substr(0, key_prefix.size() - numDigits(iter_id) - 1);
+  }
+   
   unsigned src_id = node->id();
   
   std::lock_guard<std::recursive_mutex> lk(map_mutex_);

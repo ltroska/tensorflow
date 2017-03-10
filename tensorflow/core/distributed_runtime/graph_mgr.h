@@ -60,7 +60,7 @@ class StepStatsCollector;
 //   EXPECT_EQ(out["c"], Tensor({4, 6}));
 class GraphMgr {
  public:
-  explicit GraphMgr(const WorkerEnv* worker_env);
+  explicit GraphMgr(const WorkerEnv* worker_env, bool use_hpx = false);
   ~GraphMgr();
 
   // Registers a graph. Fills in "handle"
@@ -160,6 +160,8 @@ class GraphMgr {
   Status InitItem(const string& session, const GraphDef& gdef,
                   const GraphOptions& graph_options, Item* item);
 
+  bool use_hpx_;
+  
   TF_DISALLOW_COPY_AND_ASSIGN(GraphMgr);
 };
 

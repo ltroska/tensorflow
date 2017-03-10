@@ -15,8 +15,9 @@ limitations under the License.
 
 #include "tensorflow/core/distributed_runtime/graph_mgr.h"
 
+#ifdef HAVE_HPX
 #include "tensorflow/hpx/core/common_runtime/hpx_executor.h"
-
+#endif
 
 #include <vector>
 
@@ -47,8 +48,8 @@ limitations under the License.
 
 namespace tensorflow {
 
-GraphMgr::GraphMgr(const WorkerEnv* worker_env)
-    : worker_env_(worker_env), table_(5) {}
+GraphMgr::GraphMgr(const WorkerEnv* worker_env, bool use_hpx)
+    : worker_env_(worker_env), table_(5), use_hpx_(use_hpx) {}
 
 GraphMgr::~GraphMgr() {
   for (auto p : table_) p.second->Unref();
@@ -232,8 +233,14 @@ Status GraphMgr::InitItem(const string& session, const GraphDef& gdef,
     if (unit->build_cost_model > 0) {
       skip_cost_models_ = false;
     }
-    TF_RETURN_IF_ERROR(
-        NewLocalHPXExecutor(params, subgraph.release(), &unit->root));
+    if (!use_hpx_)    
+      TF_RETURN_IF_ERROR(
+          NewLocalExecutor(params, subgraph.release(), &unit->root));  
+    #ifdef HAVE_HPX
+    else
+      TF_RETURN_IF_ERROR(
+          NewLocalHPXExecutor(params, subgraph.release(), &unit->root));
+    #endif
   }
   return Status::OK();
 }

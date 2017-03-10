@@ -23,12 +23,12 @@ struct HPXWorkerClient
       : base_type(std::move(id))
     {}
     
-    hpx::future<void> test()
+    std::string GetWorkerName() const
     {
-        server::HPXWorkerServer::TestAction act;
-        return hpx::async(act, get_id());
-    }    
-    
+      server::HPXWorkerServer::GetWorkerNameAction act;
+      return act(get_id());
+    }
+        
     void GetStatusAsync(const GetStatusRequest* request,
                               GetStatusResponse* response,
                               StatusCallback done)
@@ -59,7 +59,6 @@ struct HPXWorkerClient
     void RunGraphAsync(CallOptions* opts, const RunGraphRequest* request,
                                RunGraphResponse* response,
                                StatusCallback done) {
-//      std::cout << "HPXWorker::RunGraphAsync()" << std::endl;
       server::HPXWorkerServer::RunGraphAction act;
       AsyncCallAndAttachCallback(std::move(act), request, response,
                                 std::move(done));
@@ -68,7 +67,6 @@ struct HPXWorkerClient
     void CleanupGraphAsync(const CleanupGraphRequest* request,
                                  CleanupGraphResponse* response,
                                  StatusCallback done) {
-//      std::cout << "HPXWorker::CleanupGraphAsync()" << std::endl;
       server::HPXWorkerServer::CleanupGraphAction act;
       AsyncCallAndAttachCallback(std::move(act), request, response, std::move(done));
     };
@@ -76,7 +74,6 @@ struct HPXWorkerClient
     void CleanupAllAsync(const CleanupAllRequest* request,
                                  CleanupAllResponse* response,
                                  StatusCallback done) {
-//      std::cout << "HPXWorker::CleanupAllAsync()" << std::endl;
       server::HPXWorkerServer::CleanupAllAction act;
       AsyncCallAndAttachCallback(std::move(act), request, response, std::move(done));
     };
@@ -85,25 +82,23 @@ struct HPXWorkerClient
                                  const RecvTensorRequest* request,
                                  RecvTensorResponse* response,
                                  StatusCallback done) {
-      std::cout << "HPXWorkerClient::RecvTensorAsync()" << std::endl;
       server::HPXWorkerServer::RecvTensorAction act;
       AsyncCallAndAttachCallback(std::move(act), request, response, std::move(done));
     };
 
     void LoggingAsync(const LoggingRequest* request,
                               LoggingResponse* response, StatusCallback done) {
-//      std::cout << "HPXWorker::LoggingAsync()" << std::endl;
       server::HPXWorkerServer::LoggingAction act;
       AsyncCallAndAttachCallback(std::move(act), request, response, std::move(done));
     };
 
     void TracingAsync(const TracingRequest* request,
                               TracingResponse* response, StatusCallback done) {
-//      std::cout << "HPXWorker::TracingAsync()" << std::endl;
-
       server::HPXWorkerServer::TracingAction act;
       AsyncCallAndAttachCallback(std::move(act), request, response, std::move(done));
     };
+    
+protected:
     
     template<typename Action, typename Req, typename Resp>
     void AsyncCallAndAttachCallback(Action&& act, Req* request, Resp* response,

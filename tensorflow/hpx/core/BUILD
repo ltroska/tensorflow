@@ -38,7 +38,8 @@ if_hpx(
         copts = ["-fexceptions"],
 	    deps = [
 		    "@local_config_hpx//hpx:hpx",
-            ":hpx_executor",                
+            ":hpx_executor",        
+            ":hpx_runtime",
             ],
         alwayslink = 1,
         visibility = ["//visibility:public"]
@@ -47,14 +48,20 @@ if_hpx(
 
 if_hpx(
     cc_library(
-        name = "hpx_rendezvous_mgr",
-        srcs = ["distributed_runtime/hpx_rendezvous_mgr.cc"],
-        hdrs = ["distributed_runtime/hpx_rendezvous_mgr.h"],
+	    name = "hpx_worker_cache",
+	    srcs = ["distributed_runtime/hpx_worker_cache.cc"],
+	    hdrs = ["distributed_runtime/hpx_worker_cache.h"],
         copts = ["-fexceptions"],
-        deps = [
-              "@local_config_hpx//hpx:hpx",
-              "//tensorflow/core/distributed_runtime:rendezvous_mgr_interface"
-        ],
+	    deps = [
+		    "@local_config_hpx//hpx:hpx",
+            ":hpx_worker",
+            ":hpx_runtime",
+            "//tensorflow/core:lib",
+            "//tensorflow/core/distributed_runtime:worker_cache",
+            "//tensorflow/core/distributed_runtime:worker_cache_logger",
+            "//tensorflow/core/distributed_runtime:worker_cache_partial",
+            "//tensorflow/core/distributed_runtime:worker_interface", 
+          ],
         alwayslink = 1,
         visibility = ["//visibility:public"]
     )
@@ -68,10 +75,36 @@ if_hpx(
         copts = ["-fexceptions"],
 	    deps = [
 		    "@local_config_hpx//hpx:hpx",
-            ":hpx_rendezvous_mgr",
-        "//tensorflow/core:master_proto_cc",
-        "//tensorflow/core:worker_proto_cc",              
-            ],
+            ":hpx_worker",
+            ":hpx_master",
+            ":hpx_worker_cache",
+            ":hpx_runtime",
+            "//tensorflow/core/distributed_runtime:master_interface",
+            "//tensorflow/core/distributed_runtime:server_lib",
+            "//tensorflow/core/distributed_runtime:local_master",
+            "//tensorflow/core/distributed_runtime/rpc:rpc_rendezvous_mgr",
+            "//tensorflow/core:master_proto_cc",
+            "//tensorflow/core:worker_proto_cc",            
+          ],
+        alwayslink = 1,
+        visibility = ["//visibility:public"]
+    )
+)
+
+if_hpx(
+    cc_library(
+	    name = "hpx_session",
+	    srcs = ["distributed_runtime/hpx_session.cc"],
+	    hdrs = ["distributed_runtime/hpx_session.h"],
+        copts = ["-fexceptions"],
+	    deps = [
+		    "@local_config_hpx//hpx:hpx",
+            ":hpx_master",
+            ":hpx_runtime",
+            "//tensorflow/core/distributed_runtime:master_interface",
+            "//tensorflow/core/distributed_runtime:local_master",
+            "//tensorflow/core:master_proto_cc",
+          ],
         alwayslink = 1,
         visibility = ["//visibility:public"]
     )
@@ -80,28 +113,13 @@ if_hpx(
 if_hpx(
     cc_library(
 	    name = "core_hpx",
-	    srcs = glob(["**/*.cc"], exclude = ["common_runtime/hpx_executor.cc", "distributed_runtime/server/hpx_worker_server.cc", "distributed_runtime/hpx_master.cc", "hpx_runtime.cc", "distributed_runtime/server/*"]),
-	    hdrs = glob(["**/*.h"], exclude = ["common_runtime/hpx_executor.h", "distributed_runtime/server/hpx_worker_server.h", "distributed_runtime/hpx_master.h", "hpx_runtime.h", "distributed_runtime/server/*", "distributed_runtime/hpx_tensorflow_serialization.h"]),
+	    srcs = [],
+	    hdrs = [],
         copts = ["-fexceptions"],
 	    deps = [
-            ":hpx_worker",
-            #":hpx_master",
-            ":hpx_executor",
-            #":hpx_runtime",
-            "//tensorflow/core/distributed_runtime/rpc:grpc_server_lib",
-            "//tensorflow/core/distributed_runtime/rpc:grpc_channel",
-            "//tensorflow/core/distributed_runtime/rpc:grpc_remote_master",
-            "//tensorflow/core/distributed_runtime/rpc:grpc_worker_service",
-            "//tensorflow/core:core_cpu",
-            "//tensorflow/core:core_cpu_internal",
-            "//tensorflow/core:framework",
-            "//tensorflow/core:lib",
-            "//tensorflow/core:master_proto_cc",
-            "//tensorflow/core:protos_all_cc",
-            "//tensorflow/core/distributed_runtime:call_options",
-            "//tensorflow/core/distributed_runtime:local_master",
-            "//tensorflow/core/distributed_runtime:master_interface",
-            "//tensorflow/core:worker_proto_cc",
+            ":hpx_server",
+            ":hpx_graph_runner",
+            ":hpx_session",
 ],
         alwayslink = 1,
         visibility = ["//visibility:public"]
@@ -123,10 +141,10 @@ if_hpx(
         hdrs = ["distributed_runtime/server/hpx_worker_server.h", "distributed_runtime/hpx_worker_client.h", "distributed_runtime/hpx_worker.h"],
         copts = ["-fexceptions", '-DHPX_COMPONENT_NAME=hpx_worker_server', '-DHPX_COMPONENT_STRING=\\"hpx_worker_server\\"', '-DHPX_COMPONENT_EXPORTS','-ftemplate-backtrace-limit=0'],
         deps = [
-		    "@local_config_hpx//hpx:hpx",
-            "//tensorflow/core/distributed_runtime:worker",
-            ":hpx_serialization",
-            "//tensorflow/core/distributed_runtime/rpc:grpc_worker_service",
+              "@local_config_hpx//hpx:hpx",
+              ":hpx_serialization",
+              "//tensorflow/core/distributed_runtime:worker",
+              "//tensorflow/core/distributed_runtime/rpc:grpc_tensor_coding",
             ],
         #linkshared = 1,
         visibility = ["//visibility:public"]    
@@ -137,22 +155,14 @@ if_hpx(
     cc_library(
         name = "hpx_master",
         srcs = ["distributed_runtime/server/hpx_master_server.cc"],
-        hdrs = ["distributed_runtime/server/hpx_master_server.h", "distributed_runtime/hpx_master.h"],
-        copts = ["-fexceptions", '-DHPX_COMPONENT_NAME=hpx_master_server', '-DHPX_COMPONENT_STRING=\\"hpx_master_server\\"', '-DHPX_COMPONENT_EXPORTS'],
+        hdrs = ["distributed_runtime/server/hpx_master_server.h", "distributed_runtime/hpx_master_client.h", "distributed_runtime/hpx_master.h"],
+        copts = ["-fexceptions", '-DHPX_COMPONENT_NAME=hpx_master_server', '-DHPX_COMPONENT_STRING=\\"hpx_master_server\\"', '-DHPX_COMPONENT_EXPORTS','-ftemplate-backtrace-limit=0'],
         deps = [
 		    "@local_config_hpx//hpx:hpx",
-
-        "//tensorflow/core:lib_internal",
-        "//tensorflow/core/distributed_runtime:graph_mgr",
-        "//tensorflow/core/distributed_runtime:rendezvous_mgr_interface",
-        "//tensorflow/core/distributed_runtime:worker_interface",
-        "//tensorflow/core/distributed_runtime:worker_env",
-            "//tensorflow/core:core_cpu",
-            "//tensorflow/core:core_cpu_internal",
-            "//tensorflow/core/distributed_runtime:worker",
+            "//tensorflow/core/distributed_runtime:master",
+            ":hpx_serialization",
             ],
         #linkshared = 1,
-
         visibility = ["//visibility:public"]    
     )
 )

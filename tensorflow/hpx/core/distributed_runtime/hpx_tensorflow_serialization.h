@@ -5,6 +5,7 @@
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/platform/protobuf.h"
 #include "tensorflow/core/protobuf/worker.pb.h"
+#include "tensorflow/core/distributed_runtime/call_options.h"
 
 namespace hpx { namespace serialization {
 
@@ -27,11 +28,12 @@ inline void serialize(hpx::serialization::input_archive& ar, tensorflow::Status&
     s = tensorflow::Status(static_cast<tensorflow::error::Code>(code_int), error_msg);  
 }
 
-inline void serialize(hpx::serialization::output_archive& ar, const ::google::protobuf::Message& proto, unsigned v)
+inline void serialize(hpx::serialization::output_archive& ar, ::google::protobuf::Message& proto, unsigned v)
 {
+  
   std::string data;
   proto.SerializeToString(&data);
-  
+
   ar << data;
 }
 
@@ -43,12 +45,17 @@ inline void serialize(hpx::serialization::input_archive& ar, ::google::protobuf:
   proto.ParseFromString(data);
 }
 
-inline void serialize(hpx::serialization::input_archive& ar, const ::google::protobuf::Message& proto, unsigned v)
+inline void serialize(hpx::serialization::output_archive& ar, tensorflow::CallOptions opt, unsigned v)
+{  
+  ar << opt.GetTimeout();
+}
+
+inline void serialize(hpx::serialization::input_archive& ar, tensorflow::CallOptions opt, unsigned v)
 {
-  std::string data;
-  ar >> data;
+  tensorflow::int64 timeout;
+  ar >> timeout;
   
-  const_cast<::google::protobuf::Message&>(proto).ParseFromString(data);
+  opt.SetTimeout(timeout);
 }
 
 }}

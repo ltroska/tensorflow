@@ -105,12 +105,17 @@ class SimpleRendezvous : public Rendezvous {
 
 }  // namespace
 
+global_runtime HPXGraphRunner::init_;
+
 // static
 Status HPXGraphRunner::Run(Graph* graph, FunctionLibraryRuntime* function_library,
                         Env* env, const NamedTensorList& inputs,
                         const std::vector<string>& output_names,
-                        std::vector<Tensor>* outputs) {
-  
+                        std::vector<Tensor>* outputs) { 
+
+  if (!init_.is_running())
+    init_.start("localhost", "7100", "localhost", "7100", true);
+                         
   // TODO(vrv): Instead of copying the entire graph, consider modifying
   // the existing graph, and then removing those removed edges.
   // prior to returning.
@@ -191,7 +196,7 @@ Status HPXGraphRunner::Run(Graph* graph, FunctionLibraryRuntime* function_librar
     TF_RETURN_IF_ERROR(
         rendez->Recv(parsed, Rendezvous::Args(), &(*outputs)[i], &is_dead));
   }
-
+  
   return Status::OK();
 }
 

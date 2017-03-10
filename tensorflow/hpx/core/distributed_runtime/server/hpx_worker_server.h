@@ -6,9 +6,7 @@
 #include "tensorflow/hpx/core/distributed_runtime/hpx_tensorflow_serialization.h"
 #include "tensorflow/core/distributed_runtime/worker_env.h"
 #include "tensorflow/core/distributed_runtime/tensor_coding.h"
-#include "tensorflow/core/distributed_runtime/rpc/grpc_worker_service.h"
 #include "tensorflow/core/distributed_runtime/rendezvous_mgr_interface.h"
-#include "grpc++/support/byte_buffer.h"
 #include "tensorflow/core/distributed_runtime/rpc/grpc_tensor_coding.h"
 
 namespace tensorflow { namespace server {
@@ -86,10 +84,11 @@ struct HPXWorkerServer : hpx::components::simple_component_base<HPXWorkerServer>
   
   HPXWorkerServer(WorkerEnv* worker_env) { SetWorkerEnv(worker_env);}
   
-  void test()
+  std::string GetWorkerName() const
   {
-  }  
-  HPX_DEFINE_COMPONENT_ACTION(HPXWorkerServer, test, TestAction);
+    return worker_env_->worker_name;
+  }
+  HPX_DEFINE_COMPONENT_ACTION(HPXWorkerServer, GetWorkerName, GetWorkerNameAction);  
   
   std::pair<Status, GetStatusResponse> GetStatus(GetStatusRequest const& request) 
   {  
@@ -173,8 +172,6 @@ struct HPXWorkerServer : hpx::components::simple_component_base<HPXWorkerServer>
 
   std::pair<Status, RecvTensorResponse> RecvTensor(RecvTensorRequest const& request)
   {
-    std::cout << "HPXWorkerServer::RecvTensorAsync()" << std::endl;
-
     RecvTensorResponse response;
     CallOptions opts;
 
@@ -225,7 +222,7 @@ struct HPXWorkerServer : hpx::components::simple_component_base<HPXWorkerServer>
 }
 }
 
-HPX_REGISTER_ACTION_DECLARATION(tensorflow::server::HPXWorkerServer::TestAction, HPXWorkerServerTestAction);
+HPX_REGISTER_ACTION_DECLARATION(tensorflow::server::HPXWorkerServer::GetWorkerNameAction, HPXWorkerServerGetWorkerNameAction);
 HPX_REGISTER_ACTION_DECLARATION(tensorflow::server::HPXWorkerServer::GetStatusAction, HPXWorkerServerGetStatusAction);
 HPX_REGISTER_ACTION_DECLARATION(tensorflow::server::HPXWorkerServer::RegisterGraphAction, HPXWorkerServerRegisterGraphAction);
 HPX_REGISTER_ACTION_DECLARATION(tensorflow::server::HPXWorkerServer::DeregisterGraphAction, HPXWorkerServerDeregisterGraphAction);

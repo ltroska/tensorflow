@@ -8,7 +8,7 @@ using hpx_worker_server_type = hpx::components::component<hpx_worker_server_comp
 //
 HPX_REGISTER_COMPONENT_MODULE();
 HPX_REGISTER_COMPONENT(hpx_worker_server_type, hpx_worker_server_component);
-HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::TestAction, HPXWorkerServerTestAction);
+HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::GetWorkerNameAction, HPXWorkerServerGetWorkerNameAction);
 HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::GetStatusAction, HPXWorkerServerGetStatusAction);
 HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::RegisterGraphAction, HPXWorkerServerRegisterGraphAction);
 HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::DeregisterGraphAction, HPXWorkerServerDeregisterGraphAction);

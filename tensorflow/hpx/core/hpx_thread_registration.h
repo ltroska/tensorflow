@@ -27,4 +27,19 @@ struct thread_registration_wrapper
     char const* name_;
 };
 
+template<typename F>
+typename std::result_of<F()>::type MaybeRunAsHPXThreadGlobal(F&& f, char const* reg_string, global_runtime* init)
+{  
+  if (hpx::threads::get_self_ptr() == nullptr)
+  {
+    thread_registration_wrapper reg(init, reg_string);
+
+    return hpx::threads::run_as_hpx_thread(f);      
+  }
+  else
+  {
+    return f();
+  }
+}
+
 #endif

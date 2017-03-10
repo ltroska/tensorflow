@@ -59,6 +59,8 @@ class HPXGraphRunner {
                     Env* env, const NamedTensorList& inputs,
                     const std::vector<string>& output_names,
                     std::vector<Tensor>* outputs);
+                    
+  static global_runtime init_;
 };
 
 }  // namespace tensorflow

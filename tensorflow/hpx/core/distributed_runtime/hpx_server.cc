@@ -21,11 +21,6 @@ limitations under the License.
 #include <limits>
 #include <memory>
 
-#include "grpc++/grpc++.h"
-#include "grpc++/security/credentials.h"
-#include "grpc++/server_builder.h"
-#include "grpc/support/alloc.h"
-
 #include "tensorflow/core/common_runtime/device_factory.h"
 #include "tensorflow/core/common_runtime/device_mgr.h"
 #include "tensorflow/core/common_runtime/process_util.h"
@@ -33,11 +28,6 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/master.h"
 #include "tensorflow/core/distributed_runtime/master_env.h"
 #include "tensorflow/core/distributed_runtime/master_session.h"
-#include "tensorflow/core/distributed_runtime/rpc/async_service_interface.h"
-#include "tensorflow/core/distributed_runtime/rpc/grpc_channel.h"
-#include "tensorflow/core/distributed_runtime/rpc/grpc_master_service.h"
-#include "tensorflow/core/distributed_runtime/rpc/grpc_worker_cache.h"
-#include "tensorflow/core/distributed_runtime/rpc/grpc_worker_service.h"
 #include "tensorflow/core/distributed_runtime/rpc/rpc_rendezvous_mgr.h"
 #include "tensorflow/core/distributed_runtime/server_lib.h"
 #include "tensorflow/core/distributed_runtime/worker_env.h"
@@ -49,31 +39,12 @@ limitations under the License.
 
 namespace tensorflow {
 
-namespace {
-
-// Define an option subclass in order to disable SO_REUSEPORT for the
-// server socket.
-class NoReusePortOption : public ::grpc::ServerBuilderOption {
- public:
-  void UpdateArguments(::grpc::ChannelArguments* args) override {
-    args->SetInt(GRPC_ARG_ALLOW_REUSEPORT, 0);
-  }
-
-  void UpdatePlugins(std::vector<std::unique_ptr<::grpc::ServerBuilderPlugin>>*
-                         plugins) override {}
-};
-
-}  // namespace
-
 HPXServer::HPXServer(const ServerDef& server_def, Env* env)
     : server_def_(server_def), env_(env), state_(NEW) {}
 
 HPXServer::~HPXServer() {
   TF_CHECK_OK(Stop());
   TF_CHECK_OK(Join());
-
-  delete master_service_;
-  delete worker_service_;
 
   // TODO(mrry): Refactor the *Env classes so that it is less fiddly
   // to destroy them.
@@ -118,7 +89,6 @@ Status HPXServer::Init() {
   }
 
   // Look up the port that has been requested for this task in `server_def_`.
-  requested_port_ = -1;
   for (const auto& job : server_def_.cluster().job()) {
     if (job.name() == server_def_.job_name()) {
       auto iter = job.tasks().find(server_def_.task_index());
@@ -127,94 +97,63 @@ Status HPXServer::Init() {
                                        " was not defined in job \"",
                                        server_def_.job_name(), "\"");
       }
+            
       const std::vector<string> hostname_port =
           str_util::Split(iter->second, ':');
-      if (hostname_port.size() != 2 ||
-          !strings::safe_strto32(hostname_port[1], &requested_port_)) {
+      if (hostname_port.size() != 2) {
         return errors::InvalidArgument(
             "Could not parse port for local server from \"", iter->second,
             "\"");
       } else {
+        hostname_ = hostname_port[0];        
+        port_ = hostname_port[1];  
         break;
       }
     }
   }
-  if (requested_port_ == -1) {
+  if (port_.empty()) {
     return errors::Internal("Job \"", server_def_.job_name(),
                             "\" was not defined in cluster");
   }
-
-  // N.B. The order of initialization here is intricate, because we
-  // wish to allow `requested_port_ == 0` (for choosing any port,
-  // mostly for testing). Therefore, the construction of the channel
-  // and worker caches depends on `bound_port_`, which is not set
-  // until we call `builder.BuildAndStart()`. We must create the
-  // service objects before calling `builder.BuildAndStart()`, but
-  // `master_env_` and `worker_env_` are only partially
-  // configured. However, this is not dangerous, because we do not
-  // start serving requests until `this->Start()` is called, which
-  // happens after this method returns.
-  //
-  // TODO(mrry): Provide a general mechanism for dynamically setting
-  // the identities of tasks in the worker pool after the service is
-  // running.
-  ::grpc::ServerBuilder builder;
-  builder.AddListeningPort(strings::StrCat("0.0.0.0:", requested_port_),
-                           GetServerCredentials(server_def_), &bound_port_);
-  builder.SetMaxMessageSize(std::numeric_limits<int32>::max());
-  builder.SetOption(
-      std::unique_ptr<::grpc::ServerBuilderOption>(new NoReusePortOption));
-  master_impl_.reset(new Master(&master_env_, 0.0));
-  master_service_ = NewGrpcMasterService(master_impl_.get(), &builder);
-  worker_impl_.reset(NewGrpcWorker(&worker_env_));
-  worker_service_ = NewGrpcWorkerService(worker_impl_.get(), &builder);
-  server_ = builder.BuildAndStart();
-
-  if (!server_) {
-    return errors::Unknown("Could not start gRPC server");
-  }
-
-  bool is_root = false;
-  if (bound_port() == 2222)
-    is_root = true;
-  init_.start(bound_port() + 1, is_root, "server");
-
-  GrpcChannelSpec channel_spec;
+  
+  std::string root_hostname;
+  std::string root_port;
   for (const auto& job : server_def_.cluster().job()) {
-    std::map<int, string> host_ports;
-    for (const auto& task : job.tasks()) {
-      string& host_port = host_ports[task.first];
-      if (!host_port.empty()) {
-        return errors::InvalidArgument("JobDef for job \"", job.name(),
-                                       "\" specified two addresses for task \"",
-                                       task.first, "\": ", host_port, " and ",
-                                       task.second);
+    if (job.name() == "hpx_root")
+    {
+      auto iter = job.tasks().find(0);
+      if (iter == job.tasks().end()) {
+        return errors::InvalidArgument("'hpx_root' job contains no server");
       }
-      if (job.name() == server_def_.job_name() &&
-          task.first == server_def_.task_index()) {
-        host_port = strings::StrCat("localhost:", bound_port_);
+            
+      const std::vector<string> hostname_port =
+          str_util::Split(iter->second, ':');
+      if (hostname_port.size() != 2) {
+        return errors::InvalidArgument(
+            "Could not parse port for local server from \"", iter->second,
+            "\"");
       } else {
-        host_port = task.second;
+        root_hostname = hostname_port[0];        
+        root_port = hostname_port[1];  
+        break;
       }
     }
-    channel_spec.AddHostPortsJob(job.name(), host_ports);
+  
   }
-
-  std::unique_ptr<GrpcChannelCache> channel_cache(NewGrpcChannelCache(
-      channel_spec, GetChannelCreationFunction(server_def_)));
-  const string host_port = channel_cache->TranslateTask(name_prefix);
-  if (!strings::safe_strto32(str_util::Split(host_port, ':')[1],
-                             &requested_port_)) {
-    return errors::Internal("Could not parse port for local server from \"",
-                            channel_cache->TranslateTask(name_prefix), "\".");
-  }
+  
+  if (root_hostname.empty() || root_port.empty())
+    return errors::Internal("No hpx_root server found");
+  
+  bool is_root = (hostname_ == root_hostname && port_ == root_port);
+  init_.start(hostname_, port_, root_hostname, root_port, is_root);
 
   hpx_worker_ = HPXWorker(&init_, name_prefix, &worker_env_);
-
   worker_env_.worker_cache = NewHPXWorkerCacheWithLocalWorker(
-      channel_cache.release(), &hpx_worker_, name_prefix, &init_);;
-      
+      &hpx_worker_, name_prefix, &init_);;
+
   // Finish setting up master environment.
+  master_impl_ = CreateMaster(&master_env_);      
+  hpx_master_ = HPXMaster(&init_, hostname_ + ":" + port_, master_impl_.get());
   master_env_.ops = OpRegistry::Global();
   master_env_.worker_cache = worker_env_.worker_cache;
   master_env_.master_session_factory = [](const SessionOptions& options,
@@ -224,12 +163,12 @@ Status HPXServer::Init() {
                              CreateNoOpStatsPublisher);
   };
 
-  
-
   // Finish setting up worker environment.
-  worker_env_.graph_mgr = new GraphMgr(&worker_env_);
+  worker_env_.graph_mgr = new GraphMgr(&worker_env_, true);
   worker_env_.compute_pool = ComputePool(sess_opts);
   worker_env_.rendezvous_mgr = new RpcRendezvousMgr(&worker_env_);
+
+  std::cout << hpx::get_os_thread_count() << std::endl;
 
   // Provide direct access to the master from in-process clients.
   LocalMaster::Register(target(), master_impl_.get());
@@ -241,14 +180,11 @@ Status HPXServer::Start() {
   mutex_lock l(mu_);
   switch (state_) {
     case NEW: {
-      master_thread_.reset(
-          env_->StartThread(ThreadOptions(), "TF_master_service",
-                            [this] { master_service_->HandleRPCsLoop(); }));
-      worker_thread_.reset(
-          env_->StartThread(ThreadOptions(), "TF_worker_service",
-                            [this] { worker_service_->HandleRPCsLoop(); }));
       state_ = STARTED;
       LOG(INFO) << "Started server with target: " << target();
+      
+      MaybeRunAsHPXThreadGlobal([this](){init_.spin_until_stopped();}, "MainLoop", &init_);
+            
       return Status::OK();
     }
     case STARTED:
@@ -268,8 +204,8 @@ Status HPXServer::Stop() {
       state_ = STOPPED;
       return Status::OK();
     case STARTED:
-      return errors::Unimplemented(
-          "Clean shutdown is not currently implemented");
+      MaybeRunAsHPXThreadGlobal([this](){init_.stop();}, "Stop", &init_);
+      return Status::OK();
     case STOPPED:
       LOG(INFO) << "Server already stopped (target: " << target() << ")";
       return Status::OK();
@@ -287,8 +223,6 @@ Status HPXServer::Join() {
       return Status::OK();
     case STARTED:
     case STOPPED:
-      master_thread_.reset();
-      worker_thread_.reset();
       return Status::OK();
     default:
       CHECK(false);
@@ -296,17 +230,11 @@ Status HPXServer::Join() {
 }
 
 const string HPXServer::target() const {
-  return strings::StrCat("hpx://localhost:", bound_port_);
+  return strings::StrCat("hpx://localhost:", port_);
 }
 
-std::shared_ptr<::grpc::ServerCredentials> HPXServer::GetServerCredentials(
-    const ServerDef& server_def) const {
-  return ::grpc::InsecureServerCredentials();
-}
-
-ChannelCreationFunction HPXServer::GetChannelCreationFunction(
-    const ServerDef& server_def) const {
-  return NewHostPortGrpcChannel;
+std::unique_ptr<Master> HPXServer::CreateMaster(MasterEnv* master_env) {
+  return std::unique_ptr<Master>(new Master(master_env, 0.0));
 }
 
 /* static */
@@ -336,11 +264,11 @@ class HPXServerFactory : public ServerFactory {
 class HPXServerRegistrar {
  public:
   HPXServerRegistrar() {
-    gpr_allocation_functions alloc_fns;
+    /*//gpr_allocation_functions alloc_fns;
     alloc_fns.malloc_fn = port::Malloc;
     alloc_fns.realloc_fn = port::Realloc;
     alloc_fns.free_fn = port::Free;
-    gpr_set_allocation_functions(alloc_fns);
+    gpr_set_allocation_functions(alloc_fns);*/
     ServerFactory::Register("HPX_SERVER", new HPXServerFactory());
   }
 };

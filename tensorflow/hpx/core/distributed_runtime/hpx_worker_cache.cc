@@ -16,9 +16,6 @@ limitations under the License.
 #include "tensorflow/hpx/core/distributed_runtime/hpx_worker_cache.h"
 #include <hpx/include/run_as.hpp>
 
-#include "tensorflow/core/distributed_runtime/rpc/grpc_channel.h"
-#include "tensorflow/core/distributed_runtime/rpc/grpc_client_cq_tag.h"
-#include "tensorflow/core/distributed_runtime/rpc/grpc_remote_worker.h"
 #include "tensorflow/core/distributed_runtime/worker_cache_logger.h"
 #include "tensorflow/core/distributed_runtime/worker_cache_partial.h"
 #include "tensorflow/core/distributed_runtime/worker_interface.h"
@@ -31,28 +28,16 @@ namespace {
 
 class HPXWorkerCache : public WorkerCachePartial {
  public:
-  explicit HPXWorkerCache(GrpcChannelCache* channel_cache,
-                           WorkerInterface* local_worker,
+  explicit HPXWorkerCache(WorkerInterface* local_worker,
                            const string& local_target,
                            global_runtime* init)
       : local_target_(local_target),
         local_worker_(local_worker),
-        channel_cache_(channel_cache),
         init_(init){
   }
 
-  // Explicit destructor to control destruction order.
-  ~HPXWorkerCache() override {
-    completion_queue_.Shutdown();
-    delete polling_thread_;  // Blocks until thread exits.
-    delete channel_cache_;
-  }
-
   void ListWorkers(std::vector<string>* workers) override {
-    std::cout << "HPXWorkerCache::ListWorkers()" << std::endl;
-    channel_cache_->ListWorkers(workers);
-    for (auto s : *workers)
-      std::cout << s << std::endl;
+    HPXWorker::ListWorkers(workers, init_);
   }
 
   WorkerInterface* CreateWorker(const string& target) override {
@@ -64,7 +49,6 @@ class HPXWorkerCache : public WorkerCachePartial {
   }
 
   void ReleaseWorker(const string& target, WorkerInterface* worker) override {
-    std::cout << "HPXWorkerCache::ReleaseWorker() " << target << std::endl;
     if (target == local_target_) {
       CHECK_EQ(worker, local_worker_)
           << "Releasing a worker that was not returned by this WorkerCache";
@@ -84,23 +68,20 @@ class HPXWorkerCache : public WorkerCachePartial {
  private:
   const string local_target_;
   WorkerInterface* const local_worker_;  // Not owned.
-  GrpcChannelCache* channel_cache_;  // Owned.
-  ::grpc::CompletionQueue completion_queue_;
-  Thread* polling_thread_;  // Owned.
   WorkerCacheLogger logger_;
   global_runtime* init_;
 };
 
 }  // namespace
 
-WorkerCacheInterface* NewHPXWorkerCache(GrpcChannelCache* cc) {
-  return new HPXWorkerCache(cc, nullptr, "", nullptr);
+WorkerCacheInterface* NewHPXWorkerCache() {
+  return new HPXWorkerCache(nullptr, "", nullptr);
 }
 
 WorkerCacheInterface* NewHPXWorkerCacheWithLocalWorker(
-    GrpcChannelCache* cc, WorkerInterface* local_worker,
-    const string& local_target, global_runtime* init) {
-  return new HPXWorkerCache(cc, local_worker, local_target, init);
+    WorkerInterface* local_worker, const string& local_target,
+    global_runtime* init) {
+  return new HPXWorkerCache(local_worker, local_target, init);
 }
 
 }  // namespace tensorflow

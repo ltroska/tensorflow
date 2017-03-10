@@ -17,13 +17,14 @@ limitations under the License.
 #define TENSORFLOW_HPX_CORE_DISTRIBUTED_RUNTIME_HPX_SESSION_H_
 
 
+#include "tensorflow/hpx/core/hpx_global_runtime.h"
+
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "tensorflow/core/distributed_runtime/call_options.h"
 #include "tensorflow/core/distributed_runtime/message_wrappers.h"
-#include "tensorflow/core/distributed_runtime/rpc/grpc_channel.h"
 #include "tensorflow/core/framework/graph.pb.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/lib/core/errors.h"
@@ -59,6 +60,8 @@ class HPXSession : public Session {
                       const std::vector<string>& containers);
 
   ~HPXSession() override;
+  
+  global_runtime* GetRuntime() {return &init_;}
 
   // Creates a session with the "target". The session carries out
   // the graph computation defined by "graph", and will have version
@@ -101,7 +104,9 @@ class HPXSession : public Session {
   // Takes ownership of `*master`.
   void SetRemoteMaster(std::unique_ptr<MasterInterface> master);
 
-  private:
+private:
+
+  global_runtime init_;
 
   SessionOptions options_;
   std::unique_ptr<MasterInterface> master_;

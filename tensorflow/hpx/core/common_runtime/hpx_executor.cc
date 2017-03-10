@@ -543,7 +543,7 @@ void GraphView::Initialize(const Graph* g) {
 
 Status HPXExecutorImpl::Initialize() {
   gview_.Initialize(graph_);
-  
+    
   // Cache this value so we make this virtual function call once, rather
   // that O(# steps * # nodes per step) times.
   device_record_tensor_accesses_ =

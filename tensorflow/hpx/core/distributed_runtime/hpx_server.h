@@ -17,17 +17,13 @@ limitations under the License.
 #define TENSORFLOW_HPX_CORE_DISTRIBUTED_RUNTIME_HPX_SERVER_H_
 
 #include "tensorflow/hpx/core/distributed_runtime/hpx_worker.h"
+#include "tensorflow/hpx/core/distributed_runtime/hpx_master.h"
 
 
 #include <memory>
 
-#include "grpc++/grpc++.h"
-#include "grpc++/security/credentials.h"
-
 #include "tensorflow/core/common_runtime/process_util.h"
 #include "tensorflow/core/distributed_runtime/master_env.h"
-#include "tensorflow/core/distributed_runtime/rpc/async_service_interface.h"
-#include "tensorflow/core/distributed_runtime/rpc/grpc_channel.h"
 #include "tensorflow/core/distributed_runtime/server_lib.h"
 #include "tensorflow/core/distributed_runtime/worker_env.h"
 #include "tensorflow/core/framework/op.h"
@@ -46,8 +42,7 @@ class HPXServer : public ServerInterface {
   static Status Create(const ServerDef& server_def, Env* env,
                        std::unique_ptr<ServerInterface>* out_server);
 
-  // Destruction is only supported in the factory method. Clean
-  // shutdown is not currently implemented for this server type.
+  // Destruction is only supported in the factory method.
   virtual ~HPXServer();
 
   // Implementations of ServerInterface methods.
@@ -58,27 +53,17 @@ class HPXServer : public ServerInterface {
 
  protected:
   Status Init();
+  
+  std::unique_ptr<Master> CreateMaster(MasterEnv* master_env);
 
-  // A subclass can override this method to support secure credentials.
-  virtual std::shared_ptr<::grpc::ServerCredentials> GetServerCredentials(
-      const ServerDef& server_def) const;
-
-  virtual ChannelCreationFunction GetChannelCreationFunction(
-      const ServerDef& server_def) const;
-
-  // Returns the port to which this server is bound.
-  // This method may only be called after `this->Init()` returns successfully.
-  int bound_port() const { return bound_port_; }
-
- private:
+private: 
   // The overall server configuration.
   const ServerDef server_def_;
   Env* env_;
 
   // The port requested for this server.
-  int requested_port_;
-  // The port to which this server is bound.
-  int bound_port_ = 0;
+  std::string hostname_;
+  std::string port_;
 
   // Guards state transitions.
   mutex mu_;
@@ -95,22 +80,16 @@ class HPXServer : public ServerInterface {
   enum State { NEW, STARTED, STOPPED };
   State state_ GUARDED_BY(mu_);
 
-  // Implementation of a TensorFlow master, and RPC polling thread.
+  // Implementation of a TensorFlow master
   MasterEnv master_env_;
+  HPXMaster hpx_master_;
   std::unique_ptr<Master> master_impl_;
-  AsyncServiceInterface* master_service_ = nullptr;
-  std::unique_ptr<Thread> master_thread_ GUARDED_BY(mu_);
 
-  // Implementation of a TensorFlow worker, and RPC polling thread.
+  // Implementation of a TensorFlow worker
   WorkerEnv worker_env_;
-  std::unique_ptr<GrpcWorker> worker_impl_;
-  AsyncServiceInterface* worker_service_ = nullptr;
-  std::unique_ptr<Thread> worker_thread_ GUARDED_BY(mu_);
-
   HPXWorker hpx_worker_;
 
-  std::unique_ptr<::grpc::Server> server_ GUARDED_BY(mu_);
-    global_runtime init_;
+  global_runtime init_;
 
 };
 

@@ -10,50 +10,9 @@
 #include <string>
 #include <vector>
 
-/*///////////////////////////////////////////////////////////////////////////////
-// Store the command line arguments in global variables to make them available
-// to the startup code.
-
-#if defined(linux) || defined(__linux) || defined(__linux__)
-
-int __argc = 0;
-char** __argv = nullptr;
-
-void set_argv_argv(int argc, char* argv[], char* env[])
-{
-    __argc = argc;
-    __argv = argv;
-}
-
-__attribute__((section(".init_array")))
-    void (*set_global_argc_argv)(int, char*[], char*[]) = &set_argv_argv;
-
-#elif defined(__APPLE__)
-
-#include <crt_externs.h>
-
-inline int get_arraylen(char** argv)
-{
-    int count = 0;
-    if (nullptr != argv)
-    {
-        while(nullptr != argv[count])
-            ++count;
-    }
-    return count;
-}
-
-int __argc = get_arraylen(*_NSGetArgv());
-char** __argv = *_NSGetArgv();
-
-#endif*/
 
 struct global_runtime
-{    
- 
-   // global_runtime(global_runtime const&) = delete;
-    //void operator=(global_runtime const&) = delete;
-  
+{      
     // registration of external (to HPX) threads
     void register_thread(char const* name)
     {
@@ -63,18 +22,20 @@ struct global_runtime
     {
         hpx::unregister_thread(rts_);
     }
-        
-    void start(unsigned port = 7100, bool is_root = false, std::string const& where = "unkown")
+         
+    void start(std::string const& hostname, std::string const& port,
+                std::string const& root_hostname, std::string const& root_port,
+                bool is_root = false)
     {
-      std::cout << "starting HPX runtime" << (is_root ? " (root)" : "") <<" on port " << port << " from " << where << std::endl;
-      
       is_root_ = is_root;
+            
       port_ = port;
+      hostname_ = hostname;
       
       #if defined(HPX_WINDOWS)
         hpx::detail::init_winsocket();
       #endif
-
+      
       std::vector<std::string> const cfg = {
           // make sure hpx_main is always executed
           "hpx.run_hpx_main!=1",
@@ -82,12 +43,11 @@ struct global_runtime
           "hpx.commandline.allow_unknown!=1",
           // disable HPX' short options
           "hpx.commandline.aliasing!=0",
-          "hpx.threads!=4",
-          "hpx.localities=3",
-          "hpx.agas.address=127.0.0.1",
-          "hpx.agas.port=2223",
-          "hpx.parcel.address=127.0.0.1",
-          "hpx.parcel.port=" + std::to_string(port)
+          "hpx.threads!=1",
+          "hpx.agas.address=" + root_hostname,
+          "hpx.agas.port=" + root_port,
+          "hpx.parcel.address=" + hostname_,
+          "hpx.parcel.port=" + port_
       };
 
       using hpx::util::placeholders::_1;
@@ -116,9 +76,22 @@ struct global_runtime
           startup_cond_.wait(lk);
     }
     
-    global_runtime() : thread_count_(0), running_(false), rts_(nullptr) {};
+    global_runtime() : running_(false), rts_(nullptr), thread_count_(0) {}
+    ~global_runtime() {stop();}
 
-    ~global_runtime()
+    void spin_until_stopped()
+    {        
+      std::unique_lock<hpx::lcos::local::spinlock> lk(mtx_);
+      if (rts_ != nullptr && running_)
+          cond_.wait(lk);        
+    }
+
+    inline bool is_running()
+    {
+      return running_;
+    }
+
+    void stop()
     {
       if (running_)
       {
@@ -129,14 +102,14 @@ struct global_runtime
         }
 
         cond_.notify_one();
-
-        hpx::stop();
-        
       }
+      
+      spin_until_stopped();
+      
+      if (is_root_)
+        hpx::stop();
     }
-private:
-    std::atomic_int thread_count_;
-          
+private:          
     // Main HPX thread, does nothing but wait for the application to exit
     int hpx_main(int argc, char* argv[])
     {
@@ -150,13 +123,25 @@ private:
 
         startup_cond_.notify_one();
 
+        hpx::util::function_nonser<void()> shutdown_func =
+          [this]()
+          {
+            {
+                std::lock_guard<std::mutex> lk(startup_mtx_);
+                running_ = false;
+            }
+
+            startup_cond_.notify_one();
+          };
+          
+        hpx::register_shutdown_function(std::move(shutdown_func));
+
         {
             std::unique_lock<hpx::lcos::local::spinlock> lk(mtx_);
             if (rts_ != nullptr)
                 cond_.wait(lk);
         }
         
-        std::cout << "shutting down runtime" << std::endl;
         // tell the runtime it's ok to exit
         if (is_root_)
           return hpx::finalize();
@@ -170,7 +155,10 @@ private:
     std::condition_variable startup_cond_;
     bool running_;
     bool is_root_;
-    unsigned port_;
+    std::string port_;
+    std::string hostname_;
     hpx::runtime* rts_;
+    
+    std::atomic_uint_fast64_t thread_count_;
 };
 #endif // TENSORFLOW_HPX_CORE_HPX_GLOBAL_RUNTIME_H_

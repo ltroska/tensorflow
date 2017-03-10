@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include "tensorflow/hpx/core/distributed_runtime/hpx_session.h"
+#include "tensorflow/hpx/core/distributed_runtime/hpx_master.h"
 
 #include <unordered_map>
 
@@ -21,26 +22,32 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/call_options.h"
 #include "tensorflow/core/distributed_runtime/local_master.h"
 #include "tensorflow/core/distributed_runtime/master_interface.h"
-#include "tensorflow/core/distributed_runtime/rpc/grpc_channel.h"
-#include "tensorflow/core/distributed_runtime/rpc/grpc_remote_master.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/mutex.h"
 #include "tensorflow/core/protobuf/master.pb.h"
 
 namespace tensorflow {
   
-HPXSession::HPXSession(const SessionOptions& options)
-    : options_(options),
-      current_graph_version_(-1) {
-        //init_.start(2000, false, "session");      
-        }
-
-HPXSession::~HPXSession() {}
-
 namespace {
 const char* kSchemePrefix = "hpx://";
 const size_t kSchemePrefixLength = strlen(kSchemePrefix);
 }  // namespace
+
+HPXSession::HPXSession(const SessionOptions& options)
+    : options_(options),
+      current_graph_version_(-1) {
+        auto hostname_and_port = options.target.substr(kSchemePrefixLength);
+        const std::vector<string> hostname_port =
+          str_util::Split(hostname_and_port, ':');
+          
+        init_.start("localhost", "7100", hostname_port[0], hostname_port[1]); 
+      }
+
+HPXSession::~HPXSession() 
+{
+  master_.reset();
+  init_.stop();
+}
 
 /* static */
 Status HPXSession::Create(const SessionOptions& options,
@@ -53,10 +60,9 @@ Status HPXSession::Create(const SessionOptions& options,
   if (!options.config.rpc_options().use_rpc_for_inprocess_master()) {
     master = LocalMaster::Lookup(options.target);
   }
+            
   if (!master) {
-    SharedGrpcChannelPtr master_channel =
-        NewHostPortGrpcChannel(options.target.substr(kSchemePrefixLength));
-    master.reset(NewGrpcMaster(master_channel));
+    master.reset(NewHPXMaster(ret->GetRuntime(), options.target.substr(kSchemePrefixLength)));
   }
   ret->SetRemoteMaster(std::move(master));
   *out_session = std::move(ret);
@@ -95,7 +101,6 @@ void ReEncodeConsts(GraphDef* gdef) {
 
 Status HPXSession::CreateImpl(CallOptions* call_options,
                                const GraphDef& graph) {
-  std::cout << "HPXSession::CreateImpl()" << std::endl;
   {
     mutex_lock l(mu_);
     if (!handle_.empty()) {
@@ -117,9 +122,7 @@ Status HPXSession::CreateImpl(CallOptions* call_options,
 }
 
 Status HPXSession::Create(const GraphDef& graph) {
-      std::cout << "HPXSession::Create()" << std::endl;
-  
-    CallOptions call_options;
+  CallOptions call_options;
   call_options.SetTimeout(options_.config.operation_timeout_in_ms());
   return CreateImpl(&call_options, graph);
 }
@@ -133,9 +136,6 @@ Status HPXSession::Create(const RunOptions& run_options,
 
 Status HPXSession::ExtendImpl(CallOptions* call_options,
                                const GraphDef& graph) {
-  
-                                 std::cout << "HPXSession::ExtendImpl()" << std::endl;
-
   bool handle_is_empty;
   {
     mutex_lock l(mu_);
@@ -177,7 +177,6 @@ Status HPXSession::RunHelper(
     const std::vector<string>& output_tensor_names,
     const std::vector<string>& target_node_names, std::vector<Tensor>* outputs,
     RunMetadata* run_metadata, const string& prun_handle) {
-                                         std::cout << "HPXSession::RunHelper()" << std::endl;
 
   // Convert to proto
   std::unique_ptr<MutableRunStepRequestWrapper> req(
@@ -322,7 +321,8 @@ Status HPXSession::Close() {
   CloseSessionResponse resp;
   CallOptions call_options;
   call_options.SetTimeout(options_.config.operation_timeout_in_ms());
-  return master_->CloseSession(&call_options, &req, &resp);
+  Status s = master_->CloseSession(&call_options, &req, &resp);
+  return s;
 }
 
 std::vector<DeviceAttributes> HPXSession::ListDevices() {
@@ -355,9 +355,7 @@ void HPXSession::SetRemoteMaster(std::unique_ptr<MasterInterface> master) {
 // Static method.
 Status HPXSession::Reset(const SessionOptions& options,
                           const std::vector<string>& containers) {
-  SharedGrpcChannelPtr master_channel =
-      NewHostPortGrpcChannel(options.target.substr(kSchemePrefixLength));
-  auto master = NewGrpcMaster(master_channel);
+  /*auto master = NewGrpcMaster(master_channel);
   ResetRequest req;
   for (const auto& c : containers) req.add_container(c);
   ResetResponse resp;
@@ -365,7 +363,8 @@ Status HPXSession::Reset(const SessionOptions& options,
   call_options.SetTimeout(options.config.operation_timeout_in_ms());
   Status ret = master->Reset(&call_options, &req, &resp);
   delete master;
-  return ret;
+  return ret;*/
+  return Status::OK();
 }
 
 class HPXSessionFactory : public SessionFactory {

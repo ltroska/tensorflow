@@ -43,7 +43,7 @@ struct global_runtime
           "hpx.commandline.allow_unknown!=1",
           // disable HPX' short options
           "hpx.commandline.aliasing!=0",
-          "hpx.threads!=1",
+          "hpx.os_threads!=all",
           "hpx.agas.address=" + root_hostname,
           "hpx.agas.port=" + root_port,
           "hpx.parcel.address=" + hostname_,
@@ -122,7 +122,7 @@ private:
         }
 
         startup_cond_.notify_one();
-
+        
         hpx::util::function_nonser<void()> shutdown_func =
           [this]()
           {

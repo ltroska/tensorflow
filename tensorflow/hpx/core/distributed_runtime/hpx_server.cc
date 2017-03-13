@@ -168,8 +168,6 @@ Status HPXServer::Init() {
   worker_env_.compute_pool = ComputePool(sess_opts);
   worker_env_.rendezvous_mgr = new RpcRendezvousMgr(&worker_env_);
 
-  std::cout << hpx::get_os_thread_count() << std::endl;
-
   // Provide direct access to the master from in-process clients.
   LocalMaster::Register(target(), master_impl_.get());
 

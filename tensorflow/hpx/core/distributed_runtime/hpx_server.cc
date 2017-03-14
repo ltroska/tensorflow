@@ -37,18 +37,24 @@ limitations under the License.
 #include "tensorflow/core/platform/mem.h"
 #include "tensorflow/core/public/session_options.h"
 
-namespace tensorflow {
+namespace tensorflow
+{
 
 HPXServer::HPXServer(const ServerDef& server_def, Env* env)
-    : server_def_(server_def), env_(env), state_(NEW) {}
+    : server_def_(server_def)
+    , env_(env)
+    , state_(NEW)
+{
+}
 
-HPXServer::~HPXServer() {
+HPXServer::~HPXServer()
+{
   TF_CHECK_OK(Stop());
   TF_CHECK_OK(Join());
 
   // TODO(mrry): Refactor the *Env classes so that it is less fiddly
   // to destroy them.
-  delete master_env_.worker_cache;  // Shared with worker_env.worker_cache.
+  delete master_env_.worker_cache; // Shared with worker_env.worker_cache.
 
   // We must delete graph_mgr before device_mgr, due to shared
   // ownership of OpKernels in the executors. (The graph_mgr will
@@ -66,7 +72,8 @@ HPXServer::~HPXServer() {
   // - worker_env_.compute_pool
 }
 
-Status HPXServer::Init() {
+Status HPXServer::Init()
+{
   mutex_lock l(mu_);
   CHECK_EQ(state_, NEW);
   master_env_.env = env_;
@@ -76,15 +83,18 @@ Status HPXServer::Init() {
   sess_opts.config = server_def_.default_session_config();
 
   // Configure shared devices between master and worker.
-  string name_prefix =
-      strings::StrCat("/job:", server_def_.job_name(), "/replica:0", "/task:",
-                      server_def_.task_index());
-  TF_RETURN_IF_ERROR(DeviceFactory::AddDevices(sess_opts, name_prefix,
-                                               &master_env_.local_devices));
+  string name_prefix = strings::StrCat("/job:",
+                                       server_def_.job_name(),
+                                       "/replica:0",
+                                       "/task:",
+                                       server_def_.task_index());
+  TF_RETURN_IF_ERROR(DeviceFactory::AddDevices(
+      sess_opts, name_prefix, &master_env_.local_devices));
   worker_env_.device_mgr = new DeviceMgr(master_env_.local_devices);
   string unused;
   if (!DeviceNameUtils::SplitDeviceName(master_env_.local_devices[0]->name(),
-                                        &worker_env_.worker_name, &unused)) {
+                                        &worker_env_.worker_name,
+                                        &unused)) {
     return errors::Internal("Could not parse worker name.");
   }
 
@@ -93,74 +103,77 @@ Status HPXServer::Init() {
     if (job.name() == server_def_.job_name()) {
       auto iter = job.tasks().find(server_def_.task_index());
       if (iter == job.tasks().end()) {
-        return errors::InvalidArgument("Task ", server_def_.task_index(),
+        return errors::InvalidArgument("Task ",
+                                       server_def_.task_index(),
                                        " was not defined in job \"",
-                                       server_def_.job_name(), "\"");
+                                       server_def_.job_name(),
+                                       "\"");
       }
-            
+
       const std::vector<string> hostname_port =
           str_util::Split(iter->second, ':');
       if (hostname_port.size() != 2) {
         return errors::InvalidArgument(
-            "Could not parse port for local server from \"", iter->second,
+            "Could not parse port for local server from \"",
+            iter->second,
             "\"");
       } else {
-        hostname_ = hostname_port[0];        
-        port_ = hostname_port[1];  
+        hostname_ = hostname_port[0];
+        port_ = hostname_port[1];
         break;
       }
     }
   }
   if (port_.empty()) {
-    return errors::Internal("Job \"", server_def_.job_name(),
-                            "\" was not defined in cluster");
+    return errors::Internal(
+        "Job \"", server_def_.job_name(), "\" was not defined in cluster");
   }
-  
+
   std::string root_hostname;
   std::string root_port;
   for (const auto& job : server_def_.cluster().job()) {
-    if (job.name() == "hpx_root")
-    {
+    if (job.name() == "hpx_root") {
       auto iter = job.tasks().find(0);
       if (iter == job.tasks().end()) {
         return errors::InvalidArgument("'hpx_root' job contains no server");
       }
-            
+
       const std::vector<string> hostname_port =
           str_util::Split(iter->second, ':');
       if (hostname_port.size() != 2) {
         return errors::InvalidArgument(
-            "Could not parse port for local server from \"", iter->second,
+            "Could not parse port for local server from \"",
+            iter->second,
             "\"");
       } else {
-        root_hostname = hostname_port[0];        
-        root_port = hostname_port[1];  
+        root_hostname = hostname_port[0];
+        root_port = hostname_port[1];
         break;
       }
     }
-  
   }
-  
+
   if (root_hostname.empty() || root_port.empty())
     return errors::Internal("No hpx_root server found");
-  
+
   bool is_root = (hostname_ == root_hostname && port_ == root_port);
   init_.start(hostname_, port_, root_hostname, root_port, is_root);
 
   hpx_worker_ = HPXWorker(&init_, name_prefix, &worker_env_);
-  worker_env_.worker_cache = NewHPXWorkerCacheWithLocalWorker(
-      &hpx_worker_, name_prefix, &init_);;
+  worker_env_.worker_cache =
+      NewHPXWorkerCacheWithLocalWorker(&hpx_worker_, name_prefix, &init_);
+  ;
 
   // Finish setting up master environment.
-  master_impl_ = CreateMaster(&master_env_);      
+  master_impl_ = CreateMaster(&master_env_);
   hpx_master_ = HPXMaster(&init_, hostname_ + ":" + port_, master_impl_.get());
   master_env_.ops = OpRegistry::Global();
   master_env_.worker_cache = worker_env_.worker_cache;
   master_env_.master_session_factory = [](const SessionOptions& options,
                                           const MasterEnv* env,
                                           std::vector<Device*>* remote_devs) {
-    return new MasterSession(options, env, remote_devs,
-                             CreateNoOpStatsPublisher);
+    return new MasterSession(
+        options, env, remote_devs, CreateNoOpStatsPublisher);
   };
 
   // Finish setting up worker environment.
@@ -174,103 +187,118 @@ Status HPXServer::Init() {
   return Status::OK();
 }
 
-Status HPXServer::Start() {
+Status HPXServer::Start()
+{
   mutex_lock l(mu_);
   switch (state_) {
-    case NEW: {
-      state_ = STARTED;
-      LOG(INFO) << "Started server with target: " << target();
-      
-      MaybeRunAsHPXThreadGlobal([this](){init_.spin_until_stopped();}, "MainLoop", &init_);
-            
-      return Status::OK();
-    }
-    case STARTED:
-      LOG(INFO) << "Server already started (target: " << target() << ")";
-      return Status::OK();
-    case STOPPED:
-      return errors::FailedPrecondition("Server has stopped.");
-    default:
-      CHECK(false);
+  case NEW: {
+    state_ = STARTED;
+    LOG(INFO) << "Started server with target: " << target();
+
+    MaybeRunAsHPXThreadGlobal([this]() { init_.spin_until_stopped(); },
+                              "MainLoop",
+                              &init_);
+
+    return Status::OK();
+  }
+  case STARTED:
+    LOG(INFO) << "Server already started (target: " << target() << ")";
+    return Status::OK();
+  case STOPPED:
+    return errors::FailedPrecondition("Server has stopped.");
+  default:
+    CHECK(false);
   }
 }
 
-Status HPXServer::Stop() {
+Status HPXServer::Stop()
+{
   mutex_lock l(mu_);
   switch (state_) {
-    case NEW:
-      state_ = STOPPED;
-      return Status::OK();
-    case STARTED:
-      MaybeRunAsHPXThreadGlobal([this](){init_.stop();}, "Stop", &init_);
-      return Status::OK();
-    case STOPPED:
-      LOG(INFO) << "Server already stopped (target: " << target() << ")";
-      return Status::OK();
-    default:
-      CHECK(false);
+  case NEW:
+    state_ = STOPPED;
+    return Status::OK();
+  case STARTED:
+    MaybeRunAsHPXThreadGlobal([this]() { init_.stop(); }, "Stop", &init_);
+    return Status::OK();
+  case STOPPED:
+    LOG(INFO) << "Server already stopped (target: " << target() << ")";
+    return Status::OK();
+  default:
+    CHECK(false);
   }
 }
 
-Status HPXServer::Join() {
+Status HPXServer::Join()
+{
   mutex_lock l(mu_);
   switch (state_) {
-    case NEW:
-      // Prevent the server from being started subsequently.
-      state_ = STOPPED;
-      return Status::OK();
-    case STARTED:
-    case STOPPED:
-      return Status::OK();
-    default:
-      CHECK(false);
+  case NEW:
+    // Prevent the server from being started subsequently.
+    state_ = STOPPED;
+    return Status::OK();
+  case STARTED:
+  case STOPPED:
+    return Status::OK();
+  default:
+    CHECK(false);
   }
 }
 
-const string HPXServer::target() const {
+const string HPXServer::target() const
+{
   return strings::StrCat("hpx://localhost:", port_);
 }
 
-std::unique_ptr<Master> HPXServer::CreateMaster(MasterEnv* master_env) {
+std::unique_ptr<Master> HPXServer::CreateMaster(MasterEnv* master_env)
+{
   return std::unique_ptr<Master>(new Master(master_env, 0.0));
 }
 
 /* static */
-Status HPXServer::Create(const ServerDef& server_def, Env* env,
-                          std::unique_ptr<ServerInterface>* out_server) {
+Status HPXServer::Create(const ServerDef& server_def,
+                         Env* env,
+                         std::unique_ptr<ServerInterface>* out_server)
+{
   std::unique_ptr<HPXServer> ret(new HPXServer(server_def, Env::Default()));
   TF_RETURN_IF_ERROR(ret->Init());
   *out_server = std::move(ret);
   return Status::OK();
 }
 
-namespace {
+namespace
+{
 
-class HPXServerFactory : public ServerFactory {
- public:
-  bool AcceptsOptions(const ServerDef& server_def) override {
-    return server_def.protocol() == "hpx";
-  }
+  class HPXServerFactory : public ServerFactory
+  {
+public:
+    bool AcceptsOptions(const ServerDef& server_def) override
+    {
+      return server_def.protocol() == "hpx";
+    }
 
-  Status NewServer(const ServerDef& server_def,
-                   std::unique_ptr<ServerInterface>* out_server) override {
-    return HPXServer::Create(server_def, Env::Default(), out_server);
-  }
-};
+    Status NewServer(const ServerDef& server_def,
+                     std::unique_ptr<ServerInterface>* out_server) override
+    {
+      return HPXServer::Create(server_def, Env::Default(), out_server);
+    }
+  };
 
-// Registers a `ServerFactory` for `HPXServer` instances.
-class HPXServerRegistrar {
- public:
-  HPXServerRegistrar() {
-    /*//gpr_allocation_functions alloc_fns;
-    alloc_fns.malloc_fn = port::Malloc;
-    alloc_fns.realloc_fn = port::Realloc;
-    alloc_fns.free_fn = port::Free;
-    gpr_set_allocation_functions(alloc_fns);*/
-    ServerFactory::Register("HPX_SERVER", new HPXServerFactory());
-  }
-};
-static HPXServerRegistrar registrar;
+  // Registers a `ServerFactory` for `HPXServer` instances.
+  class HPXServerRegistrar
+  {
+public:
+    HPXServerRegistrar()
+    {
+      /*//gpr_allocation_functions alloc_fns;
+      alloc_fns.malloc_fn = port::Malloc;
+      alloc_fns.realloc_fn = port::Realloc;
+      alloc_fns.free_fn = port::Free;
+      gpr_set_allocation_functions(alloc_fns);*/
+      ServerFactory::Register("HPX_SERVER", new HPXServerFactory());
+    }
+  };
+  static HPXServerRegistrar registrar;
 
-}  // namespace
-}  // namespace tensorflow
+} // namespace
+} // namespace tensorflow

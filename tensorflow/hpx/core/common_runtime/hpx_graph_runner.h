@@ -14,7 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #ifndef TENSORFLOW_HPX_CORE_COMMON_RUNTIME_GRAPH_RUNNER_H_
-#define TENSORFLOW_HPX_CORE_COMMON_RUNTIME_GRAPH_RUNNER_H_ 
+#define TENSORFLOW_HPX_CORE_COMMON_RUNTIME_GRAPH_RUNNER_H_
 
 #include "tensorflow/hpx/core/hpx_global_runtime.h"
 
@@ -33,7 +33,8 @@ limitations under the License.
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/public/session.h"
 
-namespace tensorflow {
+namespace tensorflow
+{
 
 // GraphRunner takes a Graph, some inputs to feed, and some outputs
 // to fetch and executes the graph required to feed and fetch the
@@ -45,25 +46,29 @@ namespace tensorflow {
 // use-cases, it executes all computation on the CPU and is not meant
 // to be particularly lightweight, fast, or efficient.
 
-class HPXGraphRunner {
+class HPXGraphRunner
+{
   public:
-  HPXGraphRunner() {}
- 
+  HPXGraphRunner()
+  {
+  }
+
   // Function semantics for `inputs`, `output_names` and `outputs`
   // matches those from Session::Run().
   //
   // REQUIRES: `graph`, `env`, and `outputs` are not nullptr.
   // `function_library` may be nullptr.
-  typedef std::vector<std::pair<string, Tensor>> NamedTensorList;
-  static Status Run(Graph* graph, FunctionLibraryRuntime* function_library,
-                    Env* env, const NamedTensorList& inputs,
+  typedef std::vector<std::pair<string, Tensor> > NamedTensorList;
+  static Status Run(Graph* graph,
+                    FunctionLibraryRuntime* function_library,
+                    Env* env,
+                    const NamedTensorList& inputs,
                     const std::vector<string>& output_names,
                     std::vector<Tensor>* outputs);
-                    
+
   static global_runtime init_;
 };
 
-}  // namespace tensorflow
+} // namespace tensorflow
 
-#endif  // TENSORFLOW_HPX_CORE_COMMON_RUNTIME_GRAPH_RUNNER_H_
-
+#endif // TENSORFLOW_HPX_CORE_COMMON_RUNTIME_GRAPH_RUNNER_H_

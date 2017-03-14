@@ -19,7 +19,6 @@ limitations under the License.
 #include "tensorflow/hpx/core/distributed_runtime/hpx_worker.h"
 #include "tensorflow/hpx/core/distributed_runtime/hpx_master.h"
 
-
 #include <memory>
 
 #include "tensorflow/core/common_runtime/process_util.h"
@@ -29,17 +28,20 @@ limitations under the License.
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/platform/env.h"
 
-namespace tensorflow {
+namespace tensorflow
+{
 
 class GrpcWorker;
 class Master;
 
-class HPXServer : public ServerInterface {
- protected:
+class HPXServer : public ServerInterface
+{
+  protected:
   HPXServer(const ServerDef& server_def, Env* env);
 
- public:
-  static Status Create(const ServerDef& server_def, Env* env,
+  public:
+  static Status Create(const ServerDef& server_def,
+                       Env* env,
                        std::unique_ptr<ServerInterface>* out_server);
 
   // Destruction is only supported in the factory method.
@@ -51,12 +53,12 @@ class HPXServer : public ServerInterface {
   Status Join() override;
   const string target() const override;
 
- protected:
+  protected:
   Status Init();
-  
+
   std::unique_ptr<Master> CreateMaster(MasterEnv* master_env);
 
-private: 
+  private:
   // The overall server configuration.
   const ServerDef server_def_;
   Env* env_;
@@ -77,7 +79,11 @@ private:
   //   \                          /
   //    \________________________/
   //            Stop(), Join()
-  enum State { NEW, STARTED, STOPPED };
+  enum State {
+    NEW,
+    STARTED,
+    STOPPED
+  };
   State state_ GUARDED_BY(mu_);
 
   // Implementation of a TensorFlow master
@@ -90,9 +96,8 @@ private:
   HPXWorker hpx_worker_;
 
   global_runtime init_;
-
 };
 
-}  // namespace tensorflow
+} // namespace tensorflow
 
-#endif  // THIRD_PARTY_TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_RPC_GRPC_SERVER_LIB_H_
+#endif // THIRD_PARTY_TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_RPC_GRPC_SERVER_LIB_H_

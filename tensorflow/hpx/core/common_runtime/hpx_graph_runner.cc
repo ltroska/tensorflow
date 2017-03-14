@@ -35,87 +35,98 @@ limitations under the License.
 #include <hpx/lcos/promise.hpp>
 #include <hpx/util/unwrapped.hpp>
 
-namespace tensorflow {
-  
-namespace {
+namespace tensorflow
+{
 
-std::unique_ptr<Device> GetCPUDevice(Env* env) {
-  std::vector<Device*> devices;
-  SessionOptions session_options;
-  session_options.env = env;
-  Status s = DeviceFactory::GetFactory(DEVICE_CPU)
-                 ->CreateDevices(session_options, "", &devices);
-  if (s.ok() && !devices.empty()) {
-    return std::unique_ptr<Device>(devices[0]);
-  }
-  return nullptr;
-}
+namespace
+{
 
-// A simple rendezvous class.
-// Assumes a single sender and a single receiver, no duplicate sends, and no
-// sends of dead tensors.
-class SimpleRendezvous : public Rendezvous {
- public:
-  explicit SimpleRendezvous() {}
-
-  Status Send(const ParsedKey& parsed, const Args& send_args, const Tensor& val,
-              const bool is_dead) override {
-    if (is_dead) {
-      return errors::Internal("Send of a dead tensor");
+  std::unique_ptr<Device> GetCPUDevice(Env* env)
+  {
+    std::vector<Device*> devices;
+    SessionOptions session_options;
+    session_options.env = env;
+    Status s = DeviceFactory::GetFactory(DEVICE_CPU)
+                   ->CreateDevices(session_options, "", &devices);
+    if (s.ok() && !devices.empty()) {
+      return std::unique_ptr<Device>(devices[0]);
     }
-
-    string edge_name = parsed.edge_name.ToString();
-    if (table_.count(edge_name) > 0) {
-      return errors::Internal("Send of an already sent tensor");
-    }
-    table_[edge_name].set_value(val);
-    return Status::OK();
+    return nullptr;
   }
 
-  void RecvAsync(const ParsedKey& parsed, const Args& recv_args,
-                 DoneCallback done) override {
-    
-    string key = parsed.edge_name.ToString();
-    
-    if (table_.count(key) <= 0) {
-      Status status = errors::Internal("Did not find key ", key);
-      done(status, Args{}, recv_args, Tensor(), false);
-    } else {
-      hpx::lcos::future<Tensor> t = table_[key].get_future();
-      t.then(
-        hpx::util::unwrapped(
-          [recv_args, done, key](Tensor t)
-          {
-            done(Status::OK(), Args{}, recv_args, t, false);
-          }
-        )
-      );
+  // A simple rendezvous class.
+  // Assumes a single sender and a single receiver, no duplicate sends, and no
+  // sends of dead tensors.
+  class SimpleRendezvous : public Rendezvous
+  {
+public:
+    explicit SimpleRendezvous()
+    {
     }
-    
-  }
 
-  void StartAbort(const Status& status) override {}
+    Status Send(const ParsedKey& parsed,
+                const Args& send_args,
+                const Tensor& val,
+                const bool is_dead) override
+    {
+      if (is_dead) {
+        return errors::Internal("Send of a dead tensor");
+      }
 
- private:
-  typedef std::unordered_map<string, hpx::lcos::local::promise<Tensor> > Table;
+      string edge_name = parsed.edge_name.ToString();
+      if (table_.count(edge_name) > 0) {
+        return errors::Internal("Send of an already sent tensor");
+      }
+      table_[edge_name].set_value(val);
+      return Status::OK();
+    }
 
-  mutex mu_;
-  Table table_ GUARDED_BY(mu_);
-};
+    void RecvAsync(const ParsedKey& parsed,
+                   const Args& recv_args,
+                   DoneCallback done) override
+    {
 
-}  // namespace
+      string key = parsed.edge_name.ToString();
+
+      if (table_.count(key) <= 0) {
+        Status status = errors::Internal("Did not find key ", key);
+        done(status, Args{}, recv_args, Tensor(), false);
+      } else {
+        hpx::lcos::future<Tensor> t = table_[key].get_future();
+        t.then(hpx::util::unwrapped([recv_args, done, key](Tensor t) {
+          done(Status::OK(), Args{}, recv_args, t, false);
+        }));
+      }
+    }
+
+    void StartAbort(const Status& status) override
+    {
+    }
+
+private:
+    typedef std::unordered_map<string, hpx::lcos::local::promise<Tensor> >
+    Table;
+
+    mutex mu_;
+    Table table_ GUARDED_BY(mu_);
+  };
+
+} // namespace
 
 global_runtime HPXGraphRunner::init_;
 
 // static
-Status HPXGraphRunner::Run(Graph* graph, FunctionLibraryRuntime* function_library,
-                        Env* env, const NamedTensorList& inputs,
-                        const std::vector<string>& output_names,
-                        std::vector<Tensor>* outputs) { 
+Status HPXGraphRunner::Run(Graph* graph,
+                           FunctionLibraryRuntime* function_library,
+                           Env* env,
+                           const NamedTensorList& inputs,
+                           const std::vector<string>& output_names,
+                           std::vector<Tensor>* outputs)
+{
 
   if (!init_.is_running())
     init_.start("localhost", "7100", "localhost", "7100", true);
-                         
+
   // TODO(vrv): Instead of copying the entire graph, consider modifying
   // the existing graph, and then removing those removed edges.
   // prior to returning.
@@ -136,20 +147,21 @@ Status HPXGraphRunner::Run(Graph* graph, FunctionLibraryRuntime* function_librar
   for (const auto& in : inputs) {
     const string& tensor_name = in.first;
     input_names.emplace_back(tensor_name);
-    string full_key = Rendezvous::CreateKey("/cpu:0", 1, "/cpu:1", tensor_name,
-                                            FrameAndIter(0, 0));
-                                            
+    string full_key = Rendezvous::CreateKey(
+        "/cpu:0", 1, "/cpu:1", tensor_name, FrameAndIter(0, 0));
+
     Rendezvous::ParsedKey parsed;
     TF_RETURN_IF_ERROR(Rendezvous::ParseKey(full_key, &parsed));
-    TF_RETURN_IF_ERROR(rendez->Send(parsed, Rendezvous::Args(), in.second,
-                                    false /* is_dead */));
+    TF_RETURN_IF_ERROR(rendez->Send(
+        parsed, Rendezvous::Args(), in.second, false /* is_dead */));
   }
 
   // Call RewriteGraphForExecution
-  TF_RETURN_IF_ERROR(subgraph::RewriteGraphForExecution(
-      graph_to_run.get(), input_names, output_names, {} /* target nodes */,
-      device->attributes()));
-    
+  TF_RETURN_IF_ERROR(subgraph::RewriteGraphForExecution(graph_to_run.get(),
+                                                        input_names,
+                                                        output_names,
+                                                        {} /* target nodes */,
+                                                        device->attributes()));
 
   // Create the local executor and the Rendezvous for fetching back the
   // constants.
@@ -160,13 +172,13 @@ Status HPXGraphRunner::Run(Graph* graph, FunctionLibraryRuntime* function_librar
 
   // Take ownership and pass to NewLocalExecutor
   Graph* g = graph_to_run.release();
-    
+
   LocalExecutorParams params;
   params.device = device.get();
   params.function_library = function_library;
   params.create_kernel = [&device, g](const NodeDef& ndef, OpKernel** kernel) {
-    return CreateNonCachedKernel(device.get(), nullptr, ndef,
-                                 g->versions().producer(), kernel);
+    return CreateNonCachedKernel(
+        device.get(), nullptr, ndef, g->versions().producer(), kernel);
   };
   params.delete_kernel = [](OpKernel* kernel) { delete kernel; };
 
@@ -191,13 +203,13 @@ Status HPXGraphRunner::Run(Graph* graph, FunctionLibraryRuntime* function_librar
         "/cpu:0", 1, "/cpu:1", output_names[i], FrameAndIter(0, 0));
     Rendezvous::ParsedKey parsed;
     TF_RETURN_IF_ERROR(Rendezvous::ParseKey(output_key, &parsed));
-        
+
     bool is_dead;
     TF_RETURN_IF_ERROR(
         rendez->Recv(parsed, Rendezvous::Args(), &(*outputs)[i], &is_dead));
   }
-  
+
   return Status::OK();
 }
 
-}  // namespace tensorflow
+} // namespace tensorflow

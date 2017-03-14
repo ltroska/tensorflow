@@ -8,7 +8,6 @@
 
 #include "tensorflow/cc/framework/scope.h"
 
-
 int main(int argc, char* argv[])
 {
   using namespace tensorflow;
@@ -20,13 +19,13 @@ int main(int argc, char* argv[])
     std::cout << status.ToString() << "\n";
     return 1;
   }
-      
+
   Scope root = Scope::NewRootScope();
-    
+
   Graph* g = root.graph();
 
   status = ConvertGraphDefToGraph(GraphConstructorOptions(), graph_def, g);
-    
+
   if (!status.ok()) {
     std::cout << status.ToString() << "\n";
     return 1;
@@ -36,24 +35,22 @@ int main(int argc, char* argv[])
   a.scalar<float>()() = 3.0;
 
   Tensor b(DT_FLOAT, TensorShape());
-  b.scalar<float>()() = 5.0;  
-  
-  std::vector<std::pair<string, tensorflow::Tensor>> inputs = {
-    { "a", a },
-    { "b", b },
-  };
-    
+  b.scalar<float>()() = 5.0;
+
+  std::vector<std::pair<string, tensorflow::Tensor> > inputs = { { "a", a },
+                                                                 { "b", b }, };
+
   std::vector<tensorflow::Tensor> outputs;
-  
-  status = HPXGraphRunner::Run(g, nullptr, Env::Default(), inputs,
-  {"c"}, &outputs);
-      
+
+  status = HPXGraphRunner::Run(
+      g, nullptr, Env::Default(), inputs, { "c" }, &outputs);
+
   std::cout << outputs[0].DebugString() << std::endl;
 
   if (!status.ok()) {
     std::cout << status.ToString() << "\n";
     return 1;
   }
-     
+
   return 0;
 }

@@ -16,7 +16,6 @@ limitations under the License.
 #ifndef TENSORFLOW_HPX_CORE_DISTRIBUTED_RUNTIME_HPX_SESSION_H_
 #define TENSORFLOW_HPX_CORE_DISTRIBUTED_RUNTIME_HPX_SESSION_H_
 
-
 #include "tensorflow/hpx/core/hpx_global_runtime.h"
 
 #include <memory>
@@ -38,7 +37,8 @@ limitations under the License.
 #include "tensorflow/core/public/session.h"
 #include "tensorflow/core/public/session_options.h"
 
-namespace tensorflow {
+namespace tensorflow
+{
 
 class MasterInterface;
 
@@ -48,11 +48,12 @@ class MasterInterface;
 //
 // Multiple threads must synchronize their accesses to a single
 // session.
-class HPXSession : public Session {
- protected:
+class HPXSession : public Session
+{
+  protected:
   explicit HPXSession(const SessionOptions& options);
 
- public:
+  public:
   static Status Create(const SessionOptions& options,
                        std::unique_ptr<HPXSession>* out_session);
   // Resets the resource containers.
@@ -60,8 +61,11 @@ class HPXSession : public Session {
                       const std::vector<string>& containers);
 
   ~HPXSession() override;
-  
-  global_runtime* GetRuntime() {return &init_;}
+
+  global_runtime* GetRuntime()
+  {
+    return &init_;
+  }
 
   // Creates a session with the "target". The session carries out
   // the graph computation defined by "graph", and will have version
@@ -78,7 +82,8 @@ class HPXSession : public Session {
              const std::vector<std::pair<string, Tensor> >& inputs,
              const std::vector<string>& output_tensor_names,
              const std::vector<string>& target_node_names,
-             std::vector<Tensor>* outputs, RunMetadata* run_metadata) override;
+             std::vector<Tensor>* outputs,
+             RunMetadata* run_metadata) override;
 
   Status Extend(const GraphDef& graph) override;
   Status Extend(const RunOptions& run_options, const GraphDef& graph) override;
@@ -92,20 +97,19 @@ class HPXSession : public Session {
                                  string* handle) override;
 
   // NOTE: This API is still experimental and may change.
-  ::tensorflow::Status PRun(
-      const string& handle,
-      const std::vector<std::pair<string, Tensor> >& inputs,
-      const std::vector<string>& output_names,
-      std::vector<Tensor>* outputs) override;
+  ::tensorflow::Status
+  PRun(const string& handle,
+       const std::vector<std::pair<string, Tensor> >& inputs,
+       const std::vector<string>& output_names,
+       std::vector<Tensor>* outputs) override;
 
   std::vector<DeviceAttributes> ListDevices();
 
- protected:
+  protected:
   // Takes ownership of `*master`.
   void SetRemoteMaster(std::unique_ptr<MasterInterface> master);
 
-private:
-
+  private:
   global_runtime init_;
 
   SessionOptions options_;
@@ -122,10 +126,12 @@ private:
                    const std::vector<std::pair<string, Tensor> >& inputs,
                    const std::vector<string>& output_tensor_names,
                    const std::vector<string>& target_node_names,
-                   std::vector<Tensor>* outputs, RunMetadata* run_metadata,
+                   std::vector<Tensor>* outputs,
+                   RunMetadata* run_metadata,
                    const string& prun_handle);
 
-  Status RunProto(CallOptions* call_options, MutableRunStepRequestWrapper* req,
+  Status RunProto(CallOptions* call_options,
+                  MutableRunStepRequestWrapper* req,
                   MutableRunStepResponseWrapper* resp);
 
   // Implementations for all the public interfaces.
@@ -135,6 +141,6 @@ private:
   TF_DISALLOW_COPY_AND_ASSIGN(HPXSession);
 };
 
-}  // namespace tensorflow
+} // namespace tensorflow
 
-#endif  // TENSORFLOW_HPX_CORE_DISTRIBUTED_RUNTIME_HPX_SESSION_H_
+#endif // TENSORFLOW_HPX_CORE_DISTRIBUTED_RUNTIME_HPX_SESSION_H_

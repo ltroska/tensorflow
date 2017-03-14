@@ -7,57 +7,73 @@
 #include "tensorflow/core/protobuf/worker.pb.h"
 #include "tensorflow/core/distributed_runtime/call_options.h"
 
-namespace hpx { namespace serialization {
-
-inline void serialize(hpx::serialization::output_archive& ar, tensorflow::Status& s, unsigned)
-{  
- ar << s.error_message() << s.code() ; 
-}
-
-inline void serialize(hpx::serialization::input_archive& ar, tensorflow::Status& s, unsigned)
+namespace hpx
 {
-  unsigned code_int;
-  ar >> code_int;
-
-  std::string error_msg;
-  ar >> error_msg;
-  
-  if (code_int == 0)
-    s = tensorflow::Status::OK();
-  else
-    s = tensorflow::Status(static_cast<tensorflow::error::Code>(code_int), error_msg);  
-}
-
-inline void serialize(hpx::serialization::output_archive& ar, ::google::protobuf::Message& proto, unsigned v)
+namespace serialization
 {
-  
-  std::string data;
-  proto.SerializeToString(&data);
 
-  ar << data;
+  inline void serialize(hpx::serialization::output_archive& ar,
+                        tensorflow::Status& s,
+                        unsigned)
+  {
+    ar << s.error_message() << s.code();
+  }
+
+  inline void serialize(hpx::serialization::input_archive& ar,
+                        tensorflow::Status& s,
+                        unsigned)
+  {
+    unsigned code_int;
+    ar >> code_int;
+
+    std::string error_msg;
+    ar >> error_msg;
+
+    if (code_int == 0)
+      s = tensorflow::Status::OK();
+    else
+      s = tensorflow::Status(static_cast<tensorflow::error::Code>(code_int),
+                             error_msg);
+  }
+
+  inline void serialize(hpx::serialization::output_archive& ar,
+                        ::google::protobuf::Message& proto,
+                        unsigned v)
+  {
+
+    std::string data;
+    proto.SerializeToString(&data);
+
+    ar << data;
+  }
+
+  inline void serialize(hpx::serialization::input_archive& ar,
+                        ::google::protobuf::Message& proto,
+                        unsigned v)
+  {
+    std::string data;
+    ar >> data;
+
+    proto.ParseFromString(data);
+  }
+
+  inline void serialize(hpx::serialization::output_archive& ar,
+                        tensorflow::CallOptions opt,
+                        unsigned v)
+  {
+    ar << opt.GetTimeout();
+  }
+
+  inline void serialize(hpx::serialization::input_archive& ar,
+                        tensorflow::CallOptions opt,
+                        unsigned v)
+  {
+    tensorflow::int64 timeout;
+    ar >> timeout;
+
+    opt.SetTimeout(timeout);
+  }
 }
-
-inline void serialize(hpx::serialization::input_archive& ar, ::google::protobuf::Message& proto, unsigned v)
-{
-  std::string data;
-  ar >> data;
-
-  proto.ParseFromString(data);
 }
-
-inline void serialize(hpx::serialization::output_archive& ar, tensorflow::CallOptions opt, unsigned v)
-{  
-  ar << opt.GetTimeout();
-}
-
-inline void serialize(hpx::serialization::input_archive& ar, tensorflow::CallOptions opt, unsigned v)
-{
-  tensorflow::int64 timeout;
-  ar >> timeout;
-  
-  opt.SetTimeout(timeout);
-}
-
-}}
 
 #endif

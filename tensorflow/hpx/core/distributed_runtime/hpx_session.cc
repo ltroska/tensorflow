@@ -26,24 +26,27 @@ limitations under the License.
 #include "tensorflow/core/platform/mutex.h"
 #include "tensorflow/core/protobuf/master.pb.h"
 
-namespace tensorflow {
-  
-namespace {
-const char* kSchemePrefix = "hpx://";
-const size_t kSchemePrefixLength = strlen(kSchemePrefix);
-}  // namespace
+namespace tensorflow
+{
+
+namespace
+{
+  const char* kSchemePrefix = "hpx://";
+  const size_t kSchemePrefixLength = strlen(kSchemePrefix);
+} // namespace
 
 HPXSession::HPXSession(const SessionOptions& options)
-    : options_(options),
-      current_graph_version_(-1) {
-        auto hostname_and_port = options.target.substr(kSchemePrefixLength);
-        const std::vector<string> hostname_port =
-          str_util::Split(hostname_and_port, ':');
-          
-        init_.start("localhost", "7100", hostname_port[0], hostname_port[1]); 
-      }
+    : options_(options)
+    , current_graph_version_(-1)
+{
+  auto hostname_and_port = options.target.substr(kSchemePrefixLength);
+  const std::vector<string> hostname_port =
+      str_util::Split(hostname_and_port, ':');
 
-HPXSession::~HPXSession() 
+  init_.start("localhost", "7100", hostname_port[0], hostname_port[1]);
+}
+
+HPXSession::~HPXSession()
 {
   master_.reset();
   init_.stop();
@@ -51,8 +54,9 @@ HPXSession::~HPXSession()
 
 /* static */
 Status HPXSession::Create(const SessionOptions& options,
-                           std::unique_ptr<HPXSession>* out_session) {
-                        
+                          std::unique_ptr<HPXSession>* out_session)
+{
+
   std::unique_ptr<HPXSession> ret(new HPXSession(options));
   std::unique_ptr<MasterInterface> master;
   // For testing, we enable the client to disable the use of the local
@@ -60,47 +64,50 @@ Status HPXSession::Create(const SessionOptions& options,
   if (!options.config.rpc_options().use_rpc_for_inprocess_master()) {
     master = LocalMaster::Lookup(options.target);
   }
-            
+
   if (!master) {
-    master.reset(NewHPXMaster(ret->GetRuntime(), options.target.substr(kSchemePrefixLength)));
+    master.reset(NewHPXMaster(ret->GetRuntime(),
+                              options.target.substr(kSchemePrefixLength)));
   }
   ret->SetRemoteMaster(std::move(master));
   *out_session = std::move(ret);
   return Status::OK();
 }
 
-namespace {
-// Re-encodes constant represented in tensor proto into
-// tensor_content, which is slightly better (less copies and lower peak
-// memory usage) when used with rpc subsystems.
-void ReEncodeConsts(GraphDef* gdef) {
-  for (NodeDef& ndef : *(gdef->mutable_node())) {
-    if (ndef.op() == "Const") {
-      TensorProto* proto = nullptr;
-      for (auto& attr : *ndef.mutable_attr()) {
-        if (attr.first == "value") {
-          proto = attr.second.mutable_tensor();
+namespace
+{
+  // Re-encodes constant represented in tensor proto into
+  // tensor_content, which is slightly better (less copies and lower peak
+  // memory usage) when used with rpc subsystems.
+  void ReEncodeConsts(GraphDef* gdef)
+  {
+    for (NodeDef& ndef : *(gdef->mutable_node())) {
+      if (ndef.op() == "Const") {
+        TensorProto* proto = nullptr;
+        for (auto& attr : *ndef.mutable_attr()) {
+          if (attr.first == "value") {
+            proto = attr.second.mutable_tensor();
+          }
         }
-      }
-      if (proto != nullptr && proto->tensor_content().empty() &&
-          proto->ByteSize() > 64) {
-        // If the constant is encoded with repeated proto fields and
-        // it is moderate large, we re-encode it in tensor_content as
-        // a Cord. This is mildly helpful for reducing the peak memory
-        // usage on the server side where GraphDef/NodeDef are copied
-        // quite often.
-        Tensor parsed(proto->dtype());
-        if (parsed.FromProto(*proto)) {
-          parsed.AsProtoTensorContent(proto);
+        if (proto != nullptr && proto->tensor_content().empty() &&
+            proto->ByteSize() > 64) {
+          // If the constant is encoded with repeated proto fields and
+          // it is moderate large, we re-encode it in tensor_content as
+          // a Cord. This is mildly helpful for reducing the peak memory
+          // usage on the server side where GraphDef/NodeDef are copied
+          // quite often.
+          Tensor parsed(proto->dtype());
+          if (parsed.FromProto(*proto)) {
+            parsed.AsProtoTensorContent(proto);
+          }
         }
       }
     }
   }
-}
-}  // namespace
+} // namespace
 
-Status HPXSession::CreateImpl(CallOptions* call_options,
-                               const GraphDef& graph) {
+Status HPXSession::CreateImpl(CallOptions* call_options, const GraphDef& graph)
+{
   {
     mutex_lock l(mu_);
     if (!handle_.empty()) {
@@ -121,21 +128,22 @@ Status HPXSession::CreateImpl(CallOptions* call_options,
   return s;
 }
 
-Status HPXSession::Create(const GraphDef& graph) {
+Status HPXSession::Create(const GraphDef& graph)
+{
   CallOptions call_options;
   call_options.SetTimeout(options_.config.operation_timeout_in_ms());
   return CreateImpl(&call_options, graph);
 }
 
-Status HPXSession::Create(const RunOptions& run_options,
-                           const GraphDef& graph) {
+Status HPXSession::Create(const RunOptions& run_options, const GraphDef& graph)
+{
   CallOptions call_options;
   call_options.SetTimeout(run_options.timeout_in_ms());
   return CreateImpl(&call_options, graph);
 }
 
-Status HPXSession::ExtendImpl(CallOptions* call_options,
-                               const GraphDef& graph) {
+Status HPXSession::ExtendImpl(CallOptions* call_options, const GraphDef& graph)
+{
   bool handle_is_empty;
   {
     mutex_lock l(mu_);
@@ -158,25 +166,29 @@ Status HPXSession::ExtendImpl(CallOptions* call_options,
   return s;
 }
 
-Status HPXSession::Extend(const GraphDef& graph) {
+Status HPXSession::Extend(const GraphDef& graph)
+{
   CallOptions call_options;
   call_options.SetTimeout(options_.config.operation_timeout_in_ms());
   return ExtendImpl(&call_options, graph);
 }
 
-Status HPXSession::Extend(const RunOptions& run_options,
-                           const GraphDef& graph) {
+Status HPXSession::Extend(const RunOptions& run_options, const GraphDef& graph)
+{
   CallOptions call_options;
   call_options.SetTimeout(run_options.timeout_in_ms());
   return ExtendImpl(&call_options, graph);
 }
 
-Status HPXSession::RunHelper(
-    const RunOptions& run_options,
-    const std::vector<std::pair<string, Tensor>>& inputs,
-    const std::vector<string>& output_tensor_names,
-    const std::vector<string>& target_node_names, std::vector<Tensor>* outputs,
-    RunMetadata* run_metadata, const string& prun_handle) {
+Status
+HPXSession::RunHelper(const RunOptions& run_options,
+                      const std::vector<std::pair<string, Tensor> >& inputs,
+                      const std::vector<string>& output_tensor_names,
+                      const std::vector<string>& target_node_names,
+                      std::vector<Tensor>* outputs,
+                      RunMetadata* run_metadata,
+                      const string& prun_handle)
+{
 
   // Convert to proto
   std::unique_ptr<MutableRunStepRequestWrapper> req(
@@ -234,28 +246,40 @@ Status HPXSession::RunHelper(
 }
 
 Status HPXSession::Run(const RunOptions& run_options,
-                        const std::vector<std::pair<string, Tensor>>& inputs,
-                        const std::vector<string>& output_tensor_names,
-                        const std::vector<string>& target_node_names,
-                        std::vector<Tensor>* outputs,
-                        RunMetadata* run_metadata) {
-  return RunHelper(run_options, inputs, output_tensor_names, target_node_names,
-                   outputs, run_metadata, /* prun_handle */ "");
+                       const std::vector<std::pair<string, Tensor> >& inputs,
+                       const std::vector<string>& output_tensor_names,
+                       const std::vector<string>& target_node_names,
+                       std::vector<Tensor>* outputs,
+                       RunMetadata* run_metadata)
+{
+  return RunHelper(run_options,
+                   inputs,
+                   output_tensor_names,
+                   target_node_names,
+                   outputs,
+                   run_metadata,
+                   /* prun_handle */ "");
 }
 
-Status HPXSession::Run(const std::vector<std::pair<string, Tensor>>& inputs,
-                        const std::vector<string>& output_tensor_names,
-                        const std::vector<string>& target_node_names,
-                        std::vector<Tensor>* outputs) {
+Status HPXSession::Run(const std::vector<std::pair<string, Tensor> >& inputs,
+                       const std::vector<string>& output_tensor_names,
+                       const std::vector<string>& target_node_names,
+                       std::vector<Tensor>* outputs)
+{
   RunOptions run_options;
   run_options.set_timeout_in_ms(options_.config.operation_timeout_in_ms());
-  return Run(run_options, inputs, output_tensor_names, target_node_names,
-             outputs, nullptr);
+  return Run(run_options,
+             inputs,
+             output_tensor_names,
+             target_node_names,
+             outputs,
+             nullptr);
 }
 
 Status HPXSession::RunProto(CallOptions* call_options,
-                             MutableRunStepRequestWrapper* req,
-                             MutableRunStepResponseWrapper* resp) {
+                            MutableRunStepRequestWrapper* req,
+                            MutableRunStepResponseWrapper* resp)
+{
   {
     mutex_lock l(mu_);
     if (handle_.empty()) {
@@ -268,9 +292,10 @@ Status HPXSession::RunProto(CallOptions* call_options,
 }
 
 Status HPXSession::PRunSetup(const std::vector<string>& input_names,
-                              const std::vector<string>& output_names,
-                              const std::vector<string>& target_nodes,
-                              string* handle) {
+                             const std::vector<string>& output_names,
+                             const std::vector<string>& target_nodes,
+                             string* handle)
+{
   // Convert to proto
   PartialRunSetupRequest req;
   PartialRunSetupResponse resp;
@@ -299,16 +324,23 @@ Status HPXSession::PRunSetup(const std::vector<string>& input_names,
 }
 
 Status HPXSession::PRun(const string& handle,
-                         const std::vector<std::pair<string, Tensor>>& inputs,
-                         const std::vector<string>& output_names,
-                         std::vector<Tensor>* outputs) {
+                        const std::vector<std::pair<string, Tensor> >& inputs,
+                        const std::vector<string>& output_names,
+                        std::vector<Tensor>* outputs)
+{
   RunOptions run_options;
   run_options.set_timeout_in_ms(options_.config.operation_timeout_in_ms());
-  return RunHelper(run_options, inputs, output_names, /* targets */ {}, outputs,
-                   /* run_metadata */ nullptr, handle);
+  return RunHelper(run_options,
+                   inputs,
+                   output_names,
+                   /* targets */ {},
+                   outputs,
+                   /* run_metadata */ nullptr,
+                   handle);
 }
 
-Status HPXSession::Close() {
+Status HPXSession::Close()
+{
   CloseSessionRequest req;
   {
     mutex_lock l(mu_);
@@ -325,7 +357,8 @@ Status HPXSession::Close() {
   return s;
 }
 
-std::vector<DeviceAttributes> HPXSession::ListDevices() {
+std::vector<DeviceAttributes> HPXSession::ListDevices()
+{
   std::vector<DeviceAttributes> devices;
 
   ListDevicesRequest req;
@@ -348,13 +381,15 @@ std::vector<DeviceAttributes> HPXSession::ListDevices() {
   return devices;
 }
 
-void HPXSession::SetRemoteMaster(std::unique_ptr<MasterInterface> master) {
+void HPXSession::SetRemoteMaster(std::unique_ptr<MasterInterface> master)
+{
   master_ = std::move(master);
 }
 
 // Static method.
 Status HPXSession::Reset(const SessionOptions& options,
-                          const std::vector<string>& containers) {
+                         const std::vector<string>& containers)
+{
   /*auto master = NewGrpcMaster(master_channel);
   ResetRequest req;
   for (const auto& c : containers) req.add_container(c);
@@ -367,13 +402,16 @@ Status HPXSession::Reset(const SessionOptions& options,
   return Status::OK();
 }
 
-class HPXSessionFactory : public SessionFactory {
- public:
-  bool AcceptsOptions(const SessionOptions& options) override {
+class HPXSessionFactory : public SessionFactory
+{
+  public:
+  bool AcceptsOptions(const SessionOptions& options) override
+  {
     return StringPiece(options.target).starts_with(kSchemePrefix);
   }
 
-  Session* NewSession(const SessionOptions& options) override {
+  Session* NewSession(const SessionOptions& options) override
+  {
     std::unique_ptr<HPXSession> ret;
     Status s = HPXSession::Create(options, &ret);
     if (s.ok()) {
@@ -386,17 +424,20 @@ class HPXSessionFactory : public SessionFactory {
 
   // Invokes the session specific static method to reset containers.
   Status Reset(const SessionOptions& options,
-               const std::vector<string>& containers) override {
+               const std::vector<string>& containers) override
+  {
     return HPXSession::Reset(options, containers);
   }
 };
 
-class HPXSessionRegistrar {
- public:
-  HPXSessionRegistrar() {
+class HPXSessionRegistrar
+{
+  public:
+  HPXSessionRegistrar()
+  {
     SessionFactory::Register("HPX_SESSION", new HPXSessionFactory());
   }
 };
 static HPXSessionRegistrar registrar;
 
-}  // namespace tensorflow
+} // namespace tensorflow

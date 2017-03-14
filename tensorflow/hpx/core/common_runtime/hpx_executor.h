@@ -18,11 +18,13 @@ limitations under the License.
 
 #include "tensorflow/core/common_runtime/executor.h"
 
-namespace tensorflow {
+namespace tensorflow
+{
 
 ::tensorflow::Status NewLocalHPXExecutor(const LocalExecutorParams& params,
-                                      const Graph* graph, Executor** executor);
+                                         const Graph* graph,
+                                         Executor** executor);
 
-}  // end namespace tensorflow
+} // end namespace tensorflow
 
-#endif  // TENSORFLOW_HPX_CORE_COMMON_RUNTIME_EXECUTOR_H_
+#endif // TENSORFLOW_HPX_CORE_COMMON_RUNTIME_EXECUTOR_H_

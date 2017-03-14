@@ -13,14 +13,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/hpx/core/distributed_runtime/hpx_worker_cache.h"
+#include "tensorflow/hpx/distributed_runtime/hpx_worker_cache.h"
 #include <hpx/include/run_as.hpp>
 
 #include "tensorflow/core/distributed_runtime/worker_cache_logger.h"
 #include "tensorflow/core/distributed_runtime/worker_cache_partial.h"
 #include "tensorflow/core/distributed_runtime/worker_interface.h"
 #include "tensorflow/core/platform/env.h"
-#include "tensorflow/hpx/core/distributed_runtime/hpx_worker.h"
+#include "tensorflow/hpx/distributed_runtime/hpx_worker.h"
 
 namespace tensorflow
 {

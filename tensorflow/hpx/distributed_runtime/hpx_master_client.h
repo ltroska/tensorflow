@@ -1,7 +1,7 @@
 #ifndef TENSORFLOW_HPX_CORE_DISTRIBUTED_RUNTIME_HPX_MASTER_CLIENT_H_
 #define TENSORFLOW_HPX_CORE_DISTRIBUTED_RUNTIME_HPX_MASTER_CLIENT_H_
 
-#include "tensorflow/hpx/core/distributed_runtime/server/hpx_master_server.h"
+#include "tensorflow/hpx/distributed_runtime/server/hpx_master_server.h"
 #include "tensorflow/core/distributed_runtime/master_env.h"
 
 namespace tensorflow

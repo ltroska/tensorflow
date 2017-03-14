@@ -16,7 +16,7 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/graph_mgr.h"
 
 #ifdef HAVE_HPX
-#include "tensorflow/hpx/core/common_runtime/hpx_executor.h"
+#include "tensorflow/hpx/common_runtime/hpx_executor.h"
 #endif
 
 #include <vector>

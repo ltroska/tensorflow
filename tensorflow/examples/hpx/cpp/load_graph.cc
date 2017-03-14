@@ -1,4 +1,4 @@
-#include "tensorflow/hpx/core/common_runtime/hpx_graph_runner.h"
+#include "tensorflow/hpx/common_runtime/hpx_graph_runner.h"
 
 #include "tensorflow/core/public/session.h"
 #include "tensorflow/core/platform/env.h"

@@ -16,8 +16,8 @@ limitations under the License.
 #ifndef TENSORFLOW_HPX_CORE_DISTRIBUTED_RUNTIME_HPX_SERVER_H_
 #define TENSORFLOW_HPX_CORE_DISTRIBUTED_RUNTIME_HPX_SERVER_H_
 
-#include "tensorflow/hpx/core/distributed_runtime/hpx_worker.h"
-#include "tensorflow/hpx/core/distributed_runtime/hpx_master.h"
+#include "tensorflow/hpx/distributed_runtime/hpx_worker.h"
+#include "tensorflow/hpx/distributed_runtime/hpx_master.h"
 
 #include <memory>
 

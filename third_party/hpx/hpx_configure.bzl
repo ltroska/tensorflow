@@ -138,7 +138,7 @@ def _create_dummy_repository(repository_ctx):
   # Set up BUILD file for hpx
   _tpl(repository_ctx, "hpx:build_defs.bzl", {"%{hpx_is_configured}": "False"})
   _tpl(repository_ctx, "hpx:BUILD")
-  _file(repository_ctx, "hpx:hpx_bazel_defs.bzl")
+  repository_ctx.file("hpx/hpx_bazel_defs.bzl", _DUMMY_HPX_BZL_FILE)
   _file(repository_ctx, "hpx:LICENSE")
   _tpl(repository_ctx, "hpx:platform.bzl")
 
@@ -159,9 +159,7 @@ def _hpx_autoconf_imp(repository_ctx):
     _tpl(repository_ctx, "hpx:BUILD", {"%{hpx_prefix}" : hpx_root})
     _tpl(repository_ctx, "hpx:platform.bzl")
     _file(repository_ctx, "hpx:LICENSE")
-
-    # symlink HPX bazel file
-    repository_ctx.symlink(hpx_root + "/lib/bazel/hpx_bazel_defs.bzl", "hpx_basel_defs.bzl")
+    _file(repository_ctx, "hpx:hpx_bazel_defs.bzl")
 
     # symlink libraries
     _symlink_dir(repository_ctx, hpx_root + "/lib", "hpx/hpx/lib")

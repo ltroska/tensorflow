@@ -16,7 +16,7 @@ limitations under the License.
 #ifndef TENSORFLOW_HPX_CORE_COMMON_RUNTIME_GRAPH_RUNNER_H_
 #define TENSORFLOW_HPX_CORE_COMMON_RUNTIME_GRAPH_RUNNER_H_
 
-#include "tensorflow/hpx/core/hpx_global_runtime.h"
+#include "tensorflow/hpx/hpx_global_runtime.h"
 
 #include <memory>
 #include <string>

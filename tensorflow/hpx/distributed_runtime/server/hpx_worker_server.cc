@@ -1,4 +1,4 @@
-#include "tensorflow/hpx/core/distributed_runtime/server/hpx_worker_server.h"
+#include "tensorflow/hpx/distributed_runtime/server/hpx_worker_server.h"
 
 using hpx_worker_server_component = tensorflow::server::HPXWorkerServer;
 using hpx_worker_server_type =

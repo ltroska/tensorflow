@@ -17,7 +17,7 @@ tf_hpx_library(
             "//tensorflow/cc:scope",
             ],
         hpx_deps = [
-	        "//tensorflow/hpx/core:hpx_graph_runner",
+	        "//tensorflow/hpx:hpx_graph_runner",
         ],
 )
 
@@ -35,6 +35,6 @@ tf_hpx_library(
             "//tensorflow/cc:scope",
             ],
         hpx_deps = [
-	        "//tensorflow/hpx/core:hpx_graph_runner",
+	        "//tensorflow/hpx:hpx_graph_runner",
         ],
 )

@@ -1,7 +1,7 @@
 #ifndef HPX_CORE_HPX_THREAD_REGISTRATION_H_
 #define HPX_CORE_HPX_THREAD_REGISTRATION_H_
 
-#include "tensorflow/hpx/core/hpx_global_runtime.h"
+#include "tensorflow/hpx/hpx_global_runtime.h"
 
 struct thread_registration_wrapper
 {

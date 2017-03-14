@@ -2569,7 +2569,7 @@ tf_py_wrap_cc(
         "//tensorflow/c:tf_status_helper",
         "//tensorflow/core/distributed_runtime/rpc:grpc_server_lib",
         "//tensorflow/core/distributed_runtime/rpc:grpc_session",
-        "//tensorflow/hpx/core:core_hpx",
+        "//tensorflow/hpx:core_hpx",
         "//tensorflow/core:lib",
         "//tensorflow/core:reader_base",
         "//tensorflow/core/debug",

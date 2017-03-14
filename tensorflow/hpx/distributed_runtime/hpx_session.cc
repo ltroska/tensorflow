@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/hpx/core/distributed_runtime/hpx_session.h"
-#include "tensorflow/hpx/core/distributed_runtime/hpx_master.h"
+#include "tensorflow/hpx/distributed_runtime/hpx_session.h"
+#include "tensorflow/hpx/distributed_runtime/hpx_master.h"
 
 #include <unordered_map>
 

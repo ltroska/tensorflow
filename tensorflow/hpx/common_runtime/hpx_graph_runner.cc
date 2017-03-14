@@ -13,9 +13,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/hpx/core/common_runtime/hpx_graph_runner.h"
+#include "tensorflow/hpx/common_runtime/hpx_graph_runner.h"
 
-#include "tensorflow/hpx/core/common_runtime/hpx_executor.h"
+#include "tensorflow/hpx/common_runtime/hpx_executor.h"
 
 #include "tensorflow/core/common_runtime/device_factory.h"
 #include "tensorflow/core/common_runtime/function.h"

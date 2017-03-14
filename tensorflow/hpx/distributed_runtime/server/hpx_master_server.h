@@ -2,7 +2,7 @@
 #define TENSORFLOW_HPX_CORE_DISTRIBUTED_RUNTIME_SERVER_HPX_MASTER_SERVER_H_
 
 #include <hpx/include/components.hpp>
-#include "tensorflow/hpx/core/distributed_runtime/hpx_tensorflow_serialization.h"
+#include "tensorflow/hpx/distributed_runtime/hpx_tensorflow_serialization.h"
 
 #include "tensorflow/core/distributed_runtime/call_options.h"
 #include "tensorflow/core/distributed_runtime/master_env.h"

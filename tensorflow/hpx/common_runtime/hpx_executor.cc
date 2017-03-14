@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/hpx/core/common_runtime/hpx_executor.h"
+#include "tensorflow/hpx/common_runtime/hpx_executor.h"
 
 #include <hpx/util/unwrapped.hpp>
 #include <hpx/lcos/when_all.hpp>

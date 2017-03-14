@@ -1,4 +1,4 @@
-#include "tensorflow/hpx/core/distributed_runtime/hpx_master.h"
+#include "tensorflow/hpx/distributed_runtime/hpx_master.h"
 
 namespace tensorflow
 {

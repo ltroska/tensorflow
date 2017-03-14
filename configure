@@ -610,6 +610,7 @@ while true; do
 
   if [ -e "${HPX_PATH}/" ]; then
     if [ -e "${HPX_PATH}/lib/bazel/hpx_bazel_defs.bzl" ]; then
+        ln -sf "${HPX_PATH}/lib/bazel/hpx_bazel_defs.bzl" "third_party/hpx/hpx_bazel_defs.bzl"
         export HPX_PATH
         break
     fi

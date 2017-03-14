@@ -1,9 +1,9 @@
 #ifndef TENSORFLOW_HPX_CORE_DISTRIBUTED_RUNTIME_HPX_WORKER_H_
 #define TENSORFLOW_HPX_CORE_DISTRIBUTED_RUNTIME_HPX_WORKER_H_
 
-#include "tensorflow/hpx/core/distributed_runtime/hpx_worker_client.h"
-#include "tensorflow/hpx/core/hpx_global_runtime.h"
-#include "tensorflow/hpx/core/hpx_thread_registration.h"
+#include "tensorflow/hpx/distributed_runtime/hpx_worker_client.h"
+#include "tensorflow/hpx/hpx_global_runtime.h"
+#include "tensorflow/hpx/hpx_thread_registration.h"
 #include <hpx/include/run_as.hpp>
 
 #include "tensorflow/core/distributed_runtime/call_options.h"

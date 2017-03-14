@@ -3,7 +3,7 @@
 
 #include <hpx/include/components.hpp>
 #include "tensorflow/core/distributed_runtime/worker.h"
-#include "tensorflow/hpx/core/distributed_runtime/hpx_tensorflow_serialization.h"
+#include "tensorflow/hpx/distributed_runtime/hpx_tensorflow_serialization.h"
 #include "tensorflow/core/distributed_runtime/worker_env.h"
 #include "tensorflow/core/distributed_runtime/tensor_coding.h"
 #include "tensorflow/core/distributed_runtime/rendezvous_mgr_interface.h"

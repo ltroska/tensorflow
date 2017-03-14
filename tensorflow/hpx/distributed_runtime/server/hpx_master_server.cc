@@ -1,4 +1,4 @@
-#include "tensorflow/hpx/core/distributed_runtime/server/hpx_master_server.h"
+#include "tensorflow/hpx/distributed_runtime/server/hpx_master_server.h"
 
 using hpx_master_server_component = tensorflow::server::HPXMasterServer;
 using hpx_master_server_type =

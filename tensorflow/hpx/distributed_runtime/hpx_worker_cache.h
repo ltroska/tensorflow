@@ -17,7 +17,7 @@ limitations under the License.
 #define THIRD_PARTY_TENSORFLOW_HPX_CORE_DISTRIBUTED_RUNTIME_HPX_WORKER_CACHE_H_
 
 #include "tensorflow/core/distributed_runtime/worker_cache.h"
-#include "tensorflow/hpx/core/hpx_global_runtime.h"
+#include "tensorflow/hpx/hpx_global_runtime.h"
 
 namespace tensorflow
 {

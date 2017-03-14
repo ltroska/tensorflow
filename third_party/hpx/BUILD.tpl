@@ -4,7 +4,13 @@ package(default_visibility = ["//visibility:public"])
 
 load(
     "@local_config_hpx//hpx:build_defs.bzl",
-    "if_hpx_is_configured",
+    "if_hpx",
+)
+
+load(
+    "@local_config_hpx//hpx:hpx_bazel_defs.bzl",
+    "hpx_copts",
+    "hpx_link_opts",
 )
 
 config_setting(
@@ -14,7 +20,7 @@ config_setting(
     },
 )
 
-if_hpx_is_configured(
+if_hpx(
     cc_library(
 	    name = "boost",
 	    srcs = glob(["boost/lib/**/*.so*"], exclude = ["boost/lib/**/libboost_python*"]),
@@ -27,16 +33,15 @@ if_hpx_is_configured(
     )
 )
 
-if_hpx_is_configured(
+if_hpx(
     cc_library(
 	    name = "hpx",
 	    srcs = glob(["hpx/lib/**/*.so*"]),
         data = glob(["hpx/lib/**/*.so*"]),
 	    hdrs = glob(["hpx/include/**/*"]),
         includes = ["hpx/" , "hpx/include/"],
-        #defines = ['HPX_COMPONENT_NAME=hpx_worker_server', 'HPX_COMPONENT_STRING=\\"hpx_worker_server\\"', 'HPX_COMPONENT_EXPORTS'],
 	    deps = [":boost"],
-        copts = ["-fexceptions"],
+        copts = ["-fexceptions"] + hpx_copts(),
         alwayslink = 1,
 	    visibility = ["//visibility:public"],
     )

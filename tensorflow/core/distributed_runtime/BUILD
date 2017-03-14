@@ -31,6 +31,7 @@ load("//tensorflow:tensorflow.bzl", "tf_cuda_cc_test")
 load("//tensorflow:tensorflow.bzl", "tf_cuda_cc_tests")
 
 load("@local_config_hpx//hpx:build_defs.bzl", "if_hpx")
+load("@local_config_hpx//hpx:hpx_bazel_defs.bzl", "hpx_copts")
 
 # For platform specific build config
 load(
@@ -273,7 +274,7 @@ cc_library(
     name = "graph_mgr",
     srcs = ["graph_mgr.cc"],
     hdrs = ["graph_mgr.h"],
-    copts = if_hpx(["-DHAVE_HPX"]),
+    copts = if_hpx(["-DHAVE_HPX"] + hpx_copts()),
     deps = [
         ":rendezvous_mgr_interface",
         ":worker_env",

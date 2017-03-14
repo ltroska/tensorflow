@@ -1,10 +1,9 @@
 load(
     "@local_config_hpx//hpx:build_defs.bzl",
-    "if_hpx",
+    "tf_hpx_library",
 )
 
-if_hpx(
-    cc_binary(
+tf_hpx_library(
         name = "eigenvector",
         srcs = ["eigenvector.cc"],
         deps = [
@@ -16,13 +15,13 @@ if_hpx(
             "//tensorflow/core:protos_all_cc",
             "//tensorflow/core:tensorflow",
             "//tensorflow/cc:scope",
+            ],
+        hpx_deps = [
 	        "//tensorflow/hpx/core:hpx_graph_runner",
         ],
-    )
 )
 
-if_hpx(
-    cc_binary(
+tf_hpx_library(
         name = "load_graph",
         srcs = ["load_graph.cc"],
         deps = [
@@ -34,7 +33,8 @@ if_hpx(
             "//tensorflow/core:protos_all_cc",
 	        "//tensorflow/core:tensorflow",
             "//tensorflow/cc:scope",
+            ],
+        hpx_deps = [
 	        "//tensorflow/hpx/core:hpx_graph_runner",
         ],
-    )
 )

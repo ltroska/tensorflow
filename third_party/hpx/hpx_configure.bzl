@@ -11,7 +11,11 @@
 _HOST_CXX_COMPILER = "HOST_CXX_COMPILER"
 _HOST_C_COMPILER= "HOST_C_COMPILER"
 _HPX_PATH = "HPX_PATH"
-_BOOST_PATH = "BOOST_PATH"
+
+load(
+    ":hpx_bazel_defs.bzl",
+    "boost_path",
+)
 
 def _enable_hpx(repository_ctx):
   if "TF_NEED_HPX" in repository_ctx.os.environ:
@@ -61,12 +65,7 @@ def find_hpx_root(repository_ctx):
 
 def find_boost_root(repository_ctx):
   """Find Boost root directory."""
-  boost_name = ""
-  if _BOOST_PATH in repository_ctx.os.environ:
-    boost_name = repository_ctx.os.environ[_BOOST_PATH].strip()
-  if boost_name.startswith("/"):
-    return boost_name
-  fail( "Cannot find Boost root directory, please correct your path")
+  return boost_path()
 
 def _check_lib(repository_ctx, toolkit_path, lib):
   """Checks if lib exists under hpx_toolkit_path or fail if it doesn't.
@@ -115,10 +114,31 @@ def _file(repository_ctx, label):
       Label("//third_party/%s" % label),
       {})
 
+_DUMMY_HPX_BZL_FILE = """
+def hpx_component_copts(component_name):
+    return []
+
+def hpx_application_copts():
+    return []          
+
+def hpx_copts():
+    return []
+
+def hpx_link_opts():
+    return []
+
+def hpx_path():
+    return ""
+
+def boost_path():
+    return ""
+"""
+
 def _create_dummy_repository(repository_ctx):
   # Set up BUILD file for hpx
   _tpl(repository_ctx, "hpx:build_defs.bzl", {"%{hpx_is_configured}": "False"})
   _tpl(repository_ctx, "hpx:BUILD")
+  _file(repository_ctx, "hpx:hpx_bazel_defs.bzl")
   _file(repository_ctx, "hpx:LICENSE")
   _tpl(repository_ctx, "hpx:platform.bzl")
 
@@ -139,6 +159,9 @@ def _hpx_autoconf_imp(repository_ctx):
     _tpl(repository_ctx, "hpx:BUILD", {"%{hpx_prefix}" : hpx_root})
     _tpl(repository_ctx, "hpx:platform.bzl")
     _file(repository_ctx, "hpx:LICENSE")
+
+    # symlink HPX bazel file
+    repository_ctx.symlink(hpx_root + "/lib/bazel/hpx_bazel_defs.bzl", "hpx_basel_defs.bzl")
 
     # symlink libraries
     _symlink_dir(repository_ctx, hpx_root + "/lib", "hpx/hpx/lib")

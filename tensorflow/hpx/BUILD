@@ -29,6 +29,19 @@ tf_hpx_library(
 )
 
 tf_hpx_library(
+    name = "hpx_direct_session",
+    srcs = ["common_runtime/hpx_direct_session.cc"],
+    hdrs = ["common_runtime/hpx_direct_session.h"],
+    deps = [
+        "//tensorflow/core:direct_session_internal"
+      ],
+    hpx_deps = [
+        ":hpx_executor",
+        ":hpx_runtime"
+      ]
+)
+
+tf_hpx_library(
     name = "hpx_graph_runner",
     srcs = ["common_runtime/hpx_graph_runner.cc"],
     hdrs = ["common_runtime/hpx_graph_runner.h"],
@@ -102,8 +115,8 @@ tf_hpx_library(
     name = "core_hpx",
     hpx_deps = [
         ":hpx_server",
-        ":hpx_graph_runner",
         ":hpx_session",
+        ":hpx_direct_session",
         ],
     alwayslink = 1,
     visibility = ["//visibility:public"]

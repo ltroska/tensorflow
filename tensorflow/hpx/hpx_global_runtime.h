@@ -44,7 +44,7 @@ struct global_runtime
       // allow for unknown command line options
       "hpx.commandline.allow_unknown!=1",
       // disable HPX' short options
-      "hpx.commandline.aliasing!=0",       "hpx.os_threads!=all",
+      "hpx.commandline.aliasing!=0",       "hpx.os_threads!=1",
       "hpx.agas.address=" + root_hostname, "hpx.agas.port=" + root_port,
       "hpx.parcel.address=" + hostname_,   "hpx.parcel.port=" + port_
     };
@@ -54,8 +54,7 @@ struct global_runtime
     hpx::util::function_nonser<int(int, char**)> start_function =
         hpx::util::bind(&global_runtime::hpx_main, this, _1, _2);
 
-    char* dummy_argv[2] = { const_cast<char*>(HPX_APPLICATION_STRING),
-                            nullptr };
+    char* dummy_argv[] = { const_cast<char*>(HPX_APPLICATION_STRING), nullptr };
 
     bool started;
     if (is_root)
@@ -75,6 +74,8 @@ struct global_runtime
     std::unique_lock<std::mutex> lk(startup_mtx_);
     while (!running_)
       startup_cond_.wait(lk);
+
+    rts_ = hpx::get_runtime_ptr();
   }
 
   global_runtime()
@@ -83,16 +84,23 @@ struct global_runtime
       , thread_count_(0)
   {
   }
+
   ~global_runtime()
   {
-    stop();
   }
 
-  void spin_until_stopped()
+  void stop_and_shutdown()
   {
-    std::unique_lock<hpx::lcos::local::spinlock> lk(mtx_);
-    if (rts_ != nullptr && running_)
-      cond_.wait(lk);
+    register_thread("stop_and_shutdown");
+    stop();
+    hpx::stop();
+  }
+
+  void wait_for_stop_then_shutdown()
+  {
+    register_thread("shutdown");
+    hpx::stop();
+    rts_ = nullptr;
   }
 
   inline bool is_running()
@@ -102,28 +110,22 @@ struct global_runtime
 
   void stop()
   {
+    register_thread("stop");
     if (running_) {
       // notify hpx_main above to tear down the runtime
       {
         std::lock_guard<hpx::lcos::local::spinlock> lk(mtx_);
-        rts_ = nullptr; // reset pointer
+        running_ = false; // reset pointer
       }
 
       cond_.notify_one();
     }
-
-    spin_until_stopped();
-
-    if (is_root_)
-      hpx::stop();
   }
 
   private:
   // Main HPX thread, does nothing but wait for the application to exit
   int hpx_main(int argc, char* argv[])
   {
-    rts_ = hpx::get_runtime_ptr();
-
     // Signal to constructor that thread has started running.
     {
       std::lock_guard<std::mutex> lk(startup_mtx_);
@@ -132,26 +134,16 @@ struct global_runtime
 
     startup_cond_.notify_one();
 
-    hpx::util::function_nonser<void()> shutdown_func = [this]() {
-      {
-        std::lock_guard<std::mutex> lk(startup_mtx_);
-        running_ = false;
-      }
-
-      startup_cond_.notify_one();
-    };
-
-    hpx::register_shutdown_function(std::move(shutdown_func));
-
     {
       std::unique_lock<hpx::lcos::local::spinlock> lk(mtx_);
-      if (rts_ != nullptr)
+      if (running_)
         cond_.wait(lk);
     }
 
     // tell the runtime it's ok to exit
     if (is_root_)
       return hpx::finalize();
+
     return hpx::disconnect();
   }
 

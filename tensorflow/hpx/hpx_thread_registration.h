@@ -16,6 +16,7 @@ struct thread_registration_wrapper
     // global_runtime::get_instance().register_thread(name);
     init_->register_thread(name_);
   }
+
   ~thread_registration_wrapper()
   {
     // Unregister the thread from HPX, this should be done once in the

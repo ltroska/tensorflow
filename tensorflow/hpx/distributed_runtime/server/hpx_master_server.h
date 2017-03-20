@@ -22,6 +22,7 @@ namespace server
     HPXMasterServer()
     {
     }
+
     ~HPXMasterServer()
     {
     }

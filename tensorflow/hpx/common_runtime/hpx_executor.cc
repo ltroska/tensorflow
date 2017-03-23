@@ -777,6 +777,7 @@ private:
           : ref(other.ref)
           , ref_mu(other.ref_mu)
           , has_value(other.has_value)
+          , is_dead(other.is_dead)
           , val_field_is_set(other.val_field_is_set)
           , alloc_attr(other.alloc_attr)
           , device_context(other.device_context)
@@ -799,6 +800,7 @@ private:
         ref = other.ref;
         ref_mu = other.ref_mu;
         has_value = other.has_value;
+        is_dead = other.is_dead;
         val_field_is_set = other.val_field_is_set;
         alloc_attr = other.alloc_attr;
         device_context = other.device_context;
@@ -826,6 +828,8 @@ private:
       // Whether the value exists, either in <val> or <ref>.
       bool has_value = false;
 
+      bool is_dead = false;
+
       bool val_field_is_set = false;
 
       // The attributes of the allocator that creates the tensor.
@@ -842,10 +846,7 @@ private:
 
     std::unordered_map<std::string, hpx::lcos::local::promise<Entry> >
     promise_map_;
-    std::unordered_map<std::string, hpx::lcos::shared_future<Entry> >
-    future_map_;
     std::unordered_map<std::string, bool> is_set_map_;
-    std::unordered_map<std::string, bool> is_dead_;
     std::mutex finish_mutex_;
     //  std::condition_variable maybe_finished;
     bool was_finished;
@@ -906,6 +907,7 @@ private:
                  int64 iter_id,
                  int64 base_iter,
                  std::string const& key_prefix,
+                 bool is_dead,
                  int64 scheduled_usec);
 
     // Before invoking item->kernel, fills in its "inputs".
@@ -1013,7 +1015,6 @@ private:
       , num_computed_ops_(0)
   {
     promise_map_.clear();
-    future_map_.clear();
   }
 
   HPXExecutorState::~HPXExecutorState()
@@ -1136,12 +1137,17 @@ private:
                                  int64 iter_id,
                                  int64 base_iter,
                                  std::string const& key_prefix,
+                                 bool is_dead,
                                  int64 scheduled_usec)
   {
     const GraphView& gview = impl_->gview_;
 
-    bool is_dead = is_dead_[std::to_string(node->id()) + ";" + key_prefix +
-                            std::to_string(iter_id)];
+    if (!is_dead)
+      for (auto& i : input_tensors)
+        if (i.is_dead) {
+          is_dead = true;
+          break;
+        }
 
     /*  const NodeItem* nodes = impl_->nodes_;
       NodeExecStats* stats = nullptr;*/
@@ -1607,7 +1613,10 @@ private:
         key += ";" + std::to_string(src_slot) + ";" + std::to_string(dst_slot);
       }
 
+      Entry val;
+
       if (is_set_map_.count(key) == 0) {
+        is_set_map_[key] = true;
         // if node is dead or has no valid output and destination is a loop
         // node,
         // the destination node is dead.
@@ -1618,27 +1627,21 @@ private:
           if (IsExit(e->dst()) && is_dead)
             Schedule(e->dst(), iter_id, base_iter, key_prefix);
 
-          is_set_map_[key] = true;
-          is_dead_[std::to_string(dst_id) + ";" + key_prefix +
-                   std::to_string(iter_id)] = true;
-
           if (!e->IsControlEdge() && outputs[e->src_output()].has_value)
-            promise_map_[key].set_value(outputs[e->src_output()]);
-          else
-            promise_map_[key].set_value(Entry());
-        } else if (!is_dead) {
-          is_set_map_[key] = true;
+            val = outputs[e->src_output()];
 
-          if (e->IsControlEdge())
-            promise_map_[key].set_value(Entry());
-          else {
+          val.is_dead = true;
+        } else if (!is_dead) {
+          if (!e->IsControlEdge()) {
             // schedule exit of the loop
             if (IsExit(e->dst()) && outputs[e->src_output()].has_value)
               Schedule(e->dst(), iter_id, base_iter, key_prefix);
 
-            promise_map_[key].set_value(outputs[e->src_output()]);
+            val = outputs[e->src_output()];
           }
         }
+
+        promise_map_[key].set_value(std::move(val));
       }
     }
   }
@@ -1659,46 +1662,41 @@ private:
       scheduled_usec = nodestats::NowInUsec();
     }
 
-    std::vector<hpx::lcos::shared_future<Entry> > input_futures(
-        node->num_inputs());
+    std::vector<hpx::lcos::future<Entry> > input_futures(node->num_inputs());
 
-    std::vector<hpx::lcos::shared_future<Entry> > control_futures;
+    std::vector<hpx::lcos::future<Entry> > control_futures;
     control_futures.reserve(node->in_edges().size() - node->num_inputs());
 
     unsigned dst_id = node->id();
 
-    {
+    for (const Edge* e : node->in_edges()) {
+      if (IsSource(e->src())) {
+        control_futures.push_back(hpx::make_ready_future(Entry()));
+        continue;
+      }
+      unsigned src_id = e->src()->id();
+
+      std::string key = key_prefix + std::to_string(step_id_) + ";" +
+                        std::to_string(iter_id) + ";" + std::to_string(src_id) +
+                        ";" + std::to_string(dst_id);
+
       std::lock_guard<std::recursive_mutex> lk(map_mutex_);
+      if (!e->IsControlEdge()) {
+        unsigned src_slot = e->src_output();
+        unsigned dst_slot = e->dst_input();
 
-      for (const Edge* e : node->in_edges()) {
-        unsigned src_id = e->src()->id();
+        key += ";" + std::to_string(src_slot) + ";" + std::to_string(dst_slot);
 
-        std::string key = key_prefix + std::to_string(step_id_) + ";" +
-                          std::to_string(iter_id) + ";" +
-                          std::to_string(src_id) + ";" + std::to_string(dst_id);
-
-        if (!e->IsControlEdge()) {
-          unsigned src_slot = e->src_output();
-          unsigned dst_slot = e->dst_input();
-
-          key +=
-              ";" + std::to_string(src_slot) + ";" + std::to_string(dst_slot);
-
-          future_map_[key] = promise_map_[key].get_future().share();
-          input_futures[dst_slot] = future_map_[key];
-        } else {
-          if (future_map_.count(key) == 0) {
-            future_map_[key] = promise_map_[key].get_future().share();
-            control_futures.emplace_back(future_map_[key]);
-          }
-        }
+        input_futures[dst_slot] = std::move(promise_map_[key].get_future());
+      } else {
+        control_futures.emplace_back(std::move(promise_map_[key].get_future()));
       }
     }
 
-    auto when_all_control_futures = hpx::when_all(control_futures).share();
+    auto when_all_control_futures = hpx::when_all(control_futures);
 
     if (!IsMerge(node)) {
-      auto when_all_input_futures = hpx::when_all(input_futures).share();
+      auto when_all_input_futures = hpx::when_all(input_futures);
 
       return hpx::when_all(when_all_control_futures, when_all_input_futures)
           .then(
@@ -1706,10 +1704,8 @@ private:
                hpx::util::unwrapped(
                    [this, node, iter_id, base_iter, key_prefix, scheduled_usec](
                        hpx::util::tuple<
-                           hpx::shared_future<
-                               std::vector<hpx::shared_future<Entry> > >,
-                           hpx::shared_future<
-                               std::vector<hpx::shared_future<Entry> > > >
+                           hpx::future<std::vector<hpx::future<Entry> > >,
+                           hpx::future<std::vector<hpx::future<Entry> > > >
                            data) {
                      auto inputs_futures = hpx::util::get<1>(data).get();
 
@@ -1719,15 +1715,24 @@ private:
                      for (auto& f : inputs_futures)
                        inputs.push_back(std::move(f.get()));
 
+                     bool is_dead = false;
+                     auto control_futures = hpx::util::get<0>(data).get();
+                     for (auto& f : control_futures)
+                       if (f.get().is_dead) {
+                         is_dead = true;
+                         break;
+                       }
+
                      Process(node,
                              std::move(inputs),
                              iter_id,
                              base_iter,
                              key_prefix,
+                             is_dead,
                              scheduled_usec);
                    }));
     } else {
-      auto when_any_input_futures = hpx::when_any(input_futures).share();
+      auto when_any_input_futures = hpx::when_any(input_futures);
 
       return hpx::when_all(when_all_control_futures, when_any_input_futures)
           .then(
@@ -1735,10 +1740,9 @@ private:
                hpx::util::unwrapped(
                    [this, node, iter_id, base_iter, key_prefix, scheduled_usec](
                        hpx::util::tuple<
-                           hpx::shared_future<
-                               std::vector<hpx::shared_future<Entry> > >,
-                           hpx::shared_future<hpx::when_any_result<std::vector<
-                               hpx::lcos::shared_future<Entry> > > > >
+                           hpx::future<std::vector<hpx::future<Entry> > >,
+                           hpx::future<hpx::when_any_result<
+                               std::vector<hpx::lcos::future<Entry> > > > >
                            data) {
                      EntryVector inputs(node->num_inputs());
 
@@ -1746,11 +1750,20 @@ private:
 
                      inputs[result.index] = result.futures[result.index].get();
 
+                     bool is_dead = false;
+                     auto control_futures = hpx::util::get<0>(data).get();
+                     for (auto& f : control_futures)
+                       if (f.get().is_dead) {
+                         is_dead = true;
+                         break;
+                       }
+
                      Process(node,
                              std::move(inputs),
                              iter_id,
                              base_iter,
                              key_prefix,
+                             is_dead,
                              scheduled_usec);
                    }));
     }

@@ -13,13 +13,6 @@ load(
     "hpx_link_opts",
 )
 
-config_setting(
-    name = "using_hpx",
-    values = {
-        "define": "using_hpx=true",
-    },
-)
-
 if_hpx(
     cc_library(
 	    name = "boost",

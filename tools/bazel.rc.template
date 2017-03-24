@@ -9,9 +9,6 @@ build:sycl --define=using_sycl=true
 build:sycl_asan --crosstool_top=@local_config_sycl//crosstool:toolchain
 build:sycl_asan --define=using_sycl=true --copt -fno-omit-frame-pointer --copt -fsanitize-coverage=3 --copt -DGPR_NO_DIRECT_SYSCALLS --linkopt -fPIC --linkopt -fsanitize=address
 
-build:hpx //third_party/hpx/error_if_mismatch
-build:hpx --define=using_hpx=true
-
 build --force_python=py$PYTHON_MAJOR_VERSION
 build --host_force_python=py$PYTHON_MAJOR_VERSION
 build --python$PYTHON_MAJOR_VERSION_path=$PYTHON_BINARY

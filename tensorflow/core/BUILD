@@ -71,7 +71,6 @@ load(
     "tf_cc_test",
     "tf_cc_tests",
     "tf_cuda_library",
-    "tf_hpx_and_cuda_library",
     "tf_gen_op_libs",
     "tf_generate_proto_text_sources",
     "tf_genrule_cmd_append_to_srcs",

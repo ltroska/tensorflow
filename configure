@@ -300,6 +300,40 @@ while [ "$TF_NEED_HPX" == "" ]; do
   esac
 done
 
+if [ "$TF_NEED_HPX" == "1" ]; then
+
+while true; do
+  # Point to HPX root
+  if [ -z "$HPX_PATH" ]; then
+    default_hpx_path=/opt/hpx
+    read -p "Please specify the location where HPX is installed. [Default is $default_hpx_path]: " HPX_PATH
+    fromuser="1"
+    if [ -z "$HPX_PATH" ]; then
+      HPX_PATH=$default_hpx_path
+    fi
+  fi
+
+
+  if [ -e "${HPX_PATH}/" ]; then
+    if [ -e "${HPX_PATH}/lib/bazel/hpx_bazel_defs.bzl" ]; then
+        ln -sf "${HPX_PATH}/lib/bazel/hpx_bazel_defs.bzl" "third_party/hpx/hpx_bazel_defs.bzl"
+        export HPX_PATH
+        break
+    fi
+    echo "Cannot find hpx_bazel_defs.bzl"
+
+  fi
+  echo "Invalid HPX path. ${HPX_PATH}/ cannot be found"
+
+  if [ -z "$fromuser" ]; then
+    exit 1
+  fi
+  # Retry
+  HPX_PATH=""
+done
+fi
+# end of if "$TF_NEED_HPX" == "1"
+
 export TF_NEED_CUDA
 export TF_NEED_OPENCL
 export TF_NEED_HPX
@@ -594,40 +628,6 @@ done
 # end of if "$TF_NEED_OPENCL" == "1"
 fi
 
-if [ "$TF_NEED_HPX" == "1" ]; then
-
-while true; do
-  # Point to HPX root
-  if [ -z "$HPX_PATH" ]; then
-    default_hpx_path=/opt/hpx
-    read -p "Please specify the location where HPX is installed. [Default is $default_hpx_path]: " HPX_PATH
-    fromuser="1"
-    if [ -z "$HPX_PATH" ]; then
-      HPX_PATH=$default_hpx_path
-    fi
-  fi
-
-
-  if [ -e "${HPX_PATH}/" ]; then
-    if [ -e "${HPX_PATH}/lib/bazel/hpx_bazel_defs.bzl" ]; then
-        ln -sf "${HPX_PATH}/lib/bazel/hpx_bazel_defs.bzl" "third_party/hpx/hpx_bazel_defs.bzl"
-        export HPX_PATH
-        break
-    fi
-    echo "Cannot find hpx_bazel_defs.bzl"
-
-  fi
-  echo "Invalid HPX path. ${HPX_PATH}/ cannot be found"
-
-  if [ -z "$fromuser" ]; then
-    exit 1
-  fi
-  # Retry
-  HPX_PATH=""
-done
-
-# end of if "$TF_NEED_HPX" == "1"
-fi
 
 bazel_clean_and_fetch
 

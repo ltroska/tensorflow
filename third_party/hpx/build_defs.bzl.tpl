@@ -1,5 +1,5 @@
 # Macros for building HPX code.
-load("@local_config_hpx//hpx:hpx_bazel_defs.bzl", "hpx_copts")
+load("@local_config_hpx//hpx:hpx_bazel_defs.bzl", "hpx_copts", "hpx_link_opts")
 
 def hpx_is_configured():
     return %{hpx_is_configured}
@@ -35,6 +35,8 @@ def tf_hpx_library(deps=None, hpx_deps=None, copts=None, **kwargs):
     kwargs["srcs"] = if_hpx(kwargs["srcs"])
   if "hdrs" in kwargs:
     kwargs["hdrs"] = if_hpx(kwargs["hdrs"])
+  if "linkopts" in kwargs:
+    kwargs["linkopts"] += hpx_link_opts() + ["@local_config_hpx//hpx:hpx", "@local_config_hpx//hpx:boost"]
 
   native.cc_library(
       deps = deps + if_hpx(hpx_deps + [

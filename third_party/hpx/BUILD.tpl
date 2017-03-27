@@ -21,7 +21,7 @@ if_hpx(
 	    hdrs = glob(["boost/include/**/*"]),
         includes = ["boost/" , "boost/include/"],
         copts = ["-fexceptions"],
-        alwayslink = 1,
+        linkstatic = 1,
 	    visibility = ["//visibility:public"],
     )
 )
@@ -35,7 +35,8 @@ if_hpx(
         includes = ["hpx/" , "hpx/include/"],
 	    deps = [":boost"],
         copts = ["-fexceptions"] + hpx_copts(),
-        alwayslink = 1,
+        linkopts = [":boost"],
+        linkstatic = 1,
 	    visibility = ["//visibility:public"],
     )
 )

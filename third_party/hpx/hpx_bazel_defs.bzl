@@ -1,1 +1,0 @@
-/opt/hpx/lib/bazel/hpx_bazel_defs.bzl

@@ -128,7 +128,7 @@ class HPXDirectSessionFactory : public SessionFactory
 
   bool AcceptsOptions(const SessionOptions& options) override
   {
-    return options.target == "local_hpx";
+    return StringPiece(options.target).starts_with("local_hpx");
   }
 
   Session* NewSession(const SessionOptions& options) override
@@ -242,8 +242,18 @@ HPXDirectSession::HPXDirectSession(const SessionOptions& options,
     , cancellation_manager_(new CancellationManager())
     , operation_timeout_in_ms_(options_.config.operation_timeout_in_ms())
 {
+  const std::vector<string> prefix_hostname_port =
+      str_util::Split(StringPiece(options.target), ':');
 
-  init.start("localhost", "7100", "localhost", "7100", true);
+  std::string hostname = "localhost";
+  std::string port = "7100";
+
+  if (prefix_hostname_port.size() == 3) {
+    hostname = prefix_hostname_port[1].substr(2);
+    port = prefix_hostname_port[2];
+  }
+
+  init.start(hostname, port, hostname, port, true);
 
   if (options_.config.session_inter_op_thread_pool_size() > 0) {
     for (int i = 0; i < options_.config.session_inter_op_thread_pool_size();

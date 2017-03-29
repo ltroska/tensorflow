@@ -24,11 +24,42 @@ HPXSession::HPXSession(const SessionOptions& options)
     : options_(options)
     , current_graph_version_(-1)
 {
-  auto hostname_and_port = options.target.substr(kSchemePrefixLength);
-  const std::vector<string> hostname_port =
-      str_util::Split(hostname_and_port, ':');
-
-  init_.start("localhost", "7100", hostname_port[0], hostname_port[1]);
+  auto target_and_agas = options.target.substr(kSchemePrefixLength);
+  const std::vector<string> target_agas =
+      str_util::Split(target_and_agas, '|');
+            
+  std::string hostname = "localhost";
+  std::string port = "7100";      
+  std::string agas_hostname;
+  std::string agas_port;
+      
+  target_ = target_agas[0];
+    
+  if (target_agas.size() >= 2)
+  {
+    const auto agas_hostname_port =
+      str_util::Split(target_agas[1], ':');
+    agas_hostname = agas_hostname_port[0];
+    agas_port = agas_hostname_port[1];
+    
+    if (target_agas.size() == 3)
+    {
+      const auto hostname_port =
+      str_util::Split(target_agas[2], ':');
+      hostname = hostname_port[0];
+      port = hostname_port[1];
+    }
+  }
+  else
+  {
+    const auto target_hostname_port =
+      str_util::Split(target_agas[0], ':');
+    
+    agas_hostname = target_hostname_port[0];
+    agas_port = target_hostname_port[1];
+  }
+    
+  init_.start(hostname, port, agas_hostname, agas_port);
 }
 
 HPXSession::~HPXSession()
@@ -52,7 +83,7 @@ Status HPXSession::Create(const SessionOptions& options,
 
   if (!master) {
     master.reset(NewHPXMaster(ret->GetRuntime(),
-                              options.target.substr(kSchemePrefixLength)));
+                              ret->target_));
   }
   ret->SetRemoteMaster(std::move(master));
   *out_session = std::move(ret);

@@ -19,9 +19,11 @@ struct HPXWorker : public WorkerInterface
 
   HPXWorker(global_runtime* rt,
             std::string const& basename,
+            std::size_t const id,
             WorkerEnv* worker_env)
       : init_(rt)
       , basename_("worker:" + basename)
+      , id_(id)
   {
     MaybeRunAsHPXThread(
         [this, worker_env]() {
@@ -31,7 +33,7 @@ struct HPXWorker : public WorkerInterface
                   worker_env),
               hpx::id_type::managed);
           hpx::register_with_basename(basename_, client_.get_id(), 0);
-          hpx::register_with_basename("/all_workers/", client_.get_id());
+          hpx::register_with_basename("/all/", client_.get_id(), id_);
         },
         "HPXWorker::HPXWorker(3)");
   }
@@ -74,16 +76,14 @@ struct HPXWorker : public WorkerInterface
   }
 
   static void ListWorkers(std::vector<std::string>* workers,
+                          std::size_t const num_workers,
                           global_runtime* init)
   {
-    auto f = [workers]() {
-      std::size_t const num_localities =
-          hpx::get_num_localities(hpx::launch::sync);
+    auto f = [workers, num_workers]() {
 
-      auto futures =
-          hpx::find_all_from_basename("/all_workers/", num_localities - 1);
+      auto futures = hpx::find_all_from_basename("/all/", num_workers);
 
-      workers->reserve(num_localities);
+      workers->reserve(num_workers);
 
       for (auto&& id : futures)
         workers->push_back(HPXWorkerClient(std::move(id)).GetWorkerName());
@@ -228,6 +228,7 @@ struct HPXWorker : public WorkerInterface
   HPXWorkerClient client_;
   global_runtime* init_;
   std::string basename_;
+  std::size_t id_;
 };
 }
 

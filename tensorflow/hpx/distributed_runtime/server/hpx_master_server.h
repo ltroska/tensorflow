@@ -34,7 +34,6 @@ namespace server
     std::pair<Status, CreateSessionResponse>
     CreateSession(CreateSessionRequest const& request)
     {
-
       CreateSessionResponse response;
       return std::make_pair(
           CallMasterSync(&Master::CreateSession, &request, &response),

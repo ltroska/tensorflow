@@ -114,6 +114,9 @@ Status HPXServer::Init()
         "Job \"", server_def_.job_name(), "\" was not defined in cluster");
   }
 
+  std::size_t num_workers = 0;
+  std::size_t id = 0;
+
   std::string root_hostname;
   std::string root_port;
   for (const auto& job : server_def_.cluster().job()) {
@@ -133,8 +136,12 @@ Status HPXServer::Init()
       } else {
         root_hostname = hostname_port[0];
         root_port = hostname_port[1];
-        break;
       }
+    } else {
+      if (job.name() == server_def_.job_name())
+        id = num_workers + server_def_.task_index();
+
+      num_workers += job.tasks_size();
     }
   }
 
@@ -144,10 +151,9 @@ Status HPXServer::Init()
   bool is_root = (hostname_ == root_hostname && port_ == root_port);
   init_.start(hostname_, port_, root_hostname, root_port, is_root);
 
-  hpx_worker_ = HPXWorker(&init_, name_prefix, &worker_env_);
-  worker_env_.worker_cache =
-      NewHPXWorkerCacheWithLocalWorker(&hpx_worker_, name_prefix, &init_);
-  ;
+  hpx_worker_ = HPXWorker(&init_, name_prefix, id, &worker_env_);
+  worker_env_.worker_cache = NewHPXWorkerCacheWithLocalWorker(
+      &hpx_worker_, name_prefix, num_workers, &init_);
 
   // Finish setting up master environment.
   master_impl_ = CreateMaster(&master_env_);
@@ -179,8 +185,6 @@ Status HPXServer::Start()
   case NEW: {
     state_ = STARTED;
     LOG(INFO) << "Started server with target: " << target();
-
-    init_.wait_for_stop_then_shutdown();
     return Status::OK();
   }
   case STARTED:
@@ -221,6 +225,7 @@ Status HPXServer::Join()
     return Status::OK();
   case STARTED:
   case STOPPED:
+    init_.wait_for_stop_then_shutdown();
     return Status::OK();
   default:
     CHECK(false);

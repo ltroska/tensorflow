@@ -23,12 +23,12 @@ namespace serialization
                         tensorflow::Status& s,
                         unsigned)
   {
-    unsigned code_int;
-    ar >> code_int;
-
     std::string error_msg;
     ar >> error_msg;
 
+    unsigned code_int;
+    ar >> code_int;
+    
     if (code_int == 0)
       s = tensorflow::Status::OK();
     else

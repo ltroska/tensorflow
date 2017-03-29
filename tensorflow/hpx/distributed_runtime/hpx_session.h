@@ -97,6 +97,8 @@ class HPXSession : public Session
   private:
   global_runtime init_;
 
+  std::string target_;
+
   SessionOptions options_;
   std::unique_ptr<MasterInterface> master_;
   mutex mu_;

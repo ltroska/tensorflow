@@ -13,6 +13,7 @@ WorkerCacheInterface* NewHPXWorkerCache();
 WorkerCacheInterface*
 NewHPXWorkerCacheWithLocalWorker(WorkerInterface* local_worker,
                                  const string& local_target,
+                                 const std::size_t num_workers,
                                  global_runtime* init);
 
 } // namespace tensorflow

@@ -18,8 +18,10 @@ namespace
 public:
     explicit HPXWorkerCache(WorkerInterface* local_worker,
                             const string& local_target,
+                            const std::size_t num_workers,
                             global_runtime* init)
         : local_target_(local_target)
+        , num_workers_(num_workers)
         , local_worker_(local_worker)
         , init_(init)
     {
@@ -27,7 +29,7 @@ public:
 
     void ListWorkers(std::vector<string>* workers) override
     {
-      HPXWorker::ListWorkers(workers, init_);
+      HPXWorker::ListWorkers(workers, num_workers_, init_);
     }
 
     WorkerInterface* CreateWorker(const string& target) override
@@ -66,6 +68,7 @@ public:
 
 private:
     const string local_target_;
+    const std::size_t num_workers_;
     WorkerInterface* const local_worker_; // Not owned.
     WorkerCacheLogger logger_;
     global_runtime* init_;
@@ -75,15 +78,16 @@ private:
 
 WorkerCacheInterface* NewHPXWorkerCache()
 {
-  return new HPXWorkerCache(nullptr, "", nullptr);
+  return new HPXWorkerCache(nullptr, "", 1, nullptr);
 }
 
 WorkerCacheInterface*
 NewHPXWorkerCacheWithLocalWorker(WorkerInterface* local_worker,
                                  const string& local_target,
+                                 const std::size_t num_workers,
                                  global_runtime* init)
 {
-  return new HPXWorkerCache(local_worker, local_target, init);
+  return new HPXWorkerCache(local_worker, local_target, num_workers, init);
 }
 
 } // namespace tensorflow

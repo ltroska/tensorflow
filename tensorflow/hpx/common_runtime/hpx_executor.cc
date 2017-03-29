@@ -1323,7 +1323,13 @@ private:
         OpKernelContext ctx(&params, item.num_outputs);
         if (stats)
           nodestats::SetOpStart(stats);
-        device->Compute(CHECK_NOTNULL(op_kernel), &ctx);
+          
+        auto f = [device, op_kernel, &ctx](){
+          device->Compute(CHECK_NOTNULL(op_kernel), &ctx);
+        };
+        
+        hpx::threads::run_as_os_thread(std::move(f));
+        
         if (stats)
           nodestats::SetOpEnd(stats);
 

@@ -43,6 +43,8 @@ struct global_runtime
       "hpx.run_hpx_main!=1",
       // allow for unknown command line options
       "hpx.commandline.allow_unknown!=1",
+      // ignore batch environment (in particular hpx.localities)
+      "hpx.ignore_batch_env!=1",
       // disable HPX' short options
       "hpx.commandline.aliasing!=0",       "hpx.os_threads!=1",
       "hpx.agas.address=" + root_hostname, "hpx.agas.port=" + root_port,

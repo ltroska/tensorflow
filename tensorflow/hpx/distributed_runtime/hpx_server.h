@@ -83,6 +83,8 @@ class HPXServer : public ServerInterface
   HPXWorker hpx_worker_;
 
   global_runtime init_;
+  
+  bool with_hpx_executor_;
 };
 
 } // namespace tensorflow

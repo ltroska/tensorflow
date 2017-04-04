@@ -29,6 +29,7 @@ HPXServer::HPXServer(const ServerDef& server_def, Env* env)
     : server_def_(server_def)
     , env_(env)
     , state_(NEW)
+    , with_hpx_executor_(!StringPiece(server_def.protocol()).ends_with(":tf"))
 {
 }
 
@@ -170,7 +171,7 @@ Status HPXServer::Init()
   };
 
   // Finish setting up worker environment.
-  worker_env_.graph_mgr = new GraphMgr(&worker_env_, true);
+  worker_env_.graph_mgr = new GraphMgr(&worker_env_, with_hpx_executor_);
   worker_env_.compute_pool = ComputePool(sess_opts);
   worker_env_.rendezvous_mgr = new RpcRendezvousMgr(&worker_env_);
 
@@ -263,7 +264,7 @@ namespace
 public:
     bool AcceptsOptions(const ServerDef& server_def) override
     {
-      return server_def.protocol() == "hpx";
+      return StringPiece(server_def.protocol()).starts_with("hpx");
     }
 
     Status NewServer(const ServerDef& server_def,

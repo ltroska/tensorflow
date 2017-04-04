@@ -3,7 +3,6 @@
 
 #include "tensorflow/hpx/distributed_runtime/hpx_worker_client.h"
 #include "tensorflow/hpx/hpx_global_runtime.h"
-#include "tensorflow/hpx/hpx_thread_registration.h"
 #include <hpx/include/run_as.hpp>
 
 #include "tensorflow/core/distributed_runtime/call_options.h"
@@ -15,194 +14,62 @@ namespace tensorflow
 
 struct HPXWorker : public WorkerInterface
 {
-  HPXWorker() {};
+  HPXWorker() = default;
 
   HPXWorker(global_runtime* rt,
             std::string const& basename,
             std::size_t const id,
-            WorkerEnv* worker_env)
-      : init_(rt)
-      , basename_("worker:" + basename)
-      , id_(id)
-  {
-    MaybeRunAsHPXThread(
-        [this, worker_env]() {
-          client_ = hpx::id_type(
-              hpx::components::server::construct<
-                  hpx::components::component<server::HPXWorkerServer> >(
-                  worker_env),
-              hpx::id_type::managed);
-          hpx::register_with_basename(basename_, client_.get_id(), 0);
-          hpx::register_with_basename("/all/", client_.get_id(), id_);
-        },
-        "HPXWorker::HPXWorker(3)");
-  }
+            WorkerEnv* worker_env);
 
-  HPXWorker(global_runtime* rt, std::string const& basename)
-      : init_(rt)
-      , basename_("worker:" + basename)
-  {
-    MaybeRunAsHPXThread([this]() {
-                          client_ = hpx::find_from_basename(basename_, 0);
-                        },
-                        "HPXWorker::HPXWorker(2)");
-  }
+  HPXWorker(global_runtime* rt, std::string const& basename);
 
-  HPXWorker(HPXWorker const& other)
-      : client_(other.client_)
-      , init_(other.init_)
-      , basename_(other.basename_)
-  {
-  }
-  HPXWorker(HPXWorker&& other)
-      : client_(std::move(other.client_))
-      , init_(other.init_)
-      , basename_(std::move(other.basename_))
-  {
-  }
+  HPXWorker(HPXWorker const& other);
+  HPXWorker(HPXWorker&& other);
 
-  void operator=(HPXWorker const& other)
-  {
-    client_ = other.client_;
-    init_ = other.init_;
-    basename_ = other.basename_;
-  }
-
-  void operator=(HPXWorker&& other)
-  {
-    client_ = std::move(other.client_);
-    init_ = other.init_;
-    basename_ = std::move(other.basename_);
-  }
+  void operator=(HPXWorker const& other);
+  void operator=(HPXWorker&& other);
 
   static void ListWorkers(std::vector<std::string>* workers,
                           std::size_t const num_workers,
-                          global_runtime* init)
-  {
-    auto f = [workers, num_workers]() {
-
-      auto futures = hpx::find_all_from_basename("/all/", num_workers);
-
-      workers->reserve(num_workers);
-
-      for (auto&& id : futures)
-        workers->push_back(HPXWorkerClient(std::move(id)).GetWorkerName());
-    };
-
-    MaybeRunAsHPXThreadGlobal(std::move(f), "ListWorkers", init);
-  }
+                          global_runtime* init);
 
   void GetStatusAsync(const GetStatusRequest* request,
                       GetStatusResponse* response,
-                      StatusCallback done)
-  {
-    CallAction(&HPXWorkerClient::GetStatusAsync,
-               std::move(done),
-               "GetStatusAsync",
-               request,
-               response);
-  }
+                      StatusCallback done);
 
   void RegisterGraphAsync(const RegisterGraphRequest* request,
                           RegisterGraphResponse* response,
-                          StatusCallback done)
-  {
-    CallAction(&HPXWorkerClient::RegisterGraphAsync,
-               std::move(done),
-               "RegisterGraphAsync",
-               request,
-               response);
-  };
+                          StatusCallback done);
 
   void DeregisterGraphAsync(const DeregisterGraphRequest* request,
                             DeregisterGraphResponse* response,
-                            StatusCallback done)
-  {
-    CallAction(&HPXWorkerClient::DeregisterGraphAsync,
-               std::move(done),
-               "DeregisterGraphAsync",
-               request,
-               response);
-  };
+                            StatusCallback done);
 
   void RunGraphAsync(CallOptions* opts,
                      RunGraphRequestWrapper* request,
                      MutableRunGraphResponseWrapper* response,
-                     StatusCallback done)
-  {
-    CallAction(&HPXWorkerClient::RunGraphAsync,
-               std::move(done),
-               "RunGraphAsync",
-               opts,
-               &request->ToProto(),
-               get_proto_from_wrapper(response));
-  };
+                     StatusCallback done);
 
   void CleanupGraphAsync(const CleanupGraphRequest* request,
                          CleanupGraphResponse* response,
-                         StatusCallback done)
-  {
-    CallAction(&HPXWorkerClient::CleanupGraphAsync,
-               std::move(done),
-               "CleanupGraphAsync",
-               request,
-               response);
-  };
+                         StatusCallback done);
 
   void CleanupAllAsync(const CleanupAllRequest* request,
                        CleanupAllResponse* response,
-                       StatusCallback done)
-  {
-    CallAction(&HPXWorkerClient::CleanupAllAsync,
-               std::move(done),
-               "CleanupAllAsync",
-               request,
-               response);
-  };
+                       StatusCallback done);
 
   void RecvTensorAsync(CallOptions* opts,
                        const RecvTensorRequest* request,
                        TensorResponse* response,
-                       StatusCallback done)
-  {
-    auto resp = new RecvTensorResponse();
-
-    auto wrap = [ resp, request, response, done = std::move(done) ](Status s)
-    {
-      response->InitFrom(resp);
-      delete resp;
-      done(s);
-    };
-
-    CallAction(&HPXWorkerClient::RecvTensorAsync,
-               std::move(wrap),
-               "RecvTensorAsync",
-               opts,
-               request,
-               resp);
-  };
+                       StatusCallback done);
 
   void LoggingAsync(const LoggingRequest* request,
                     LoggingResponse* response,
-                    StatusCallback done)
-  {
-    CallAction(&HPXWorkerClient::LoggingAsync,
-               std::move(done),
-               "LoggingAsync",
-               request,
-               response);
-  };
+                    StatusCallback done);
 
   void TracingAsync(const TracingRequest* request,
                     TracingResponse* response,
-                    StatusCallback done)
-  {
-    CallAction(&HPXWorkerClient::TracingAsync,
-               std::move(done),
-               "TracingAsync",
-               request,
-               response);
-  };
+                    StatusCallback done);
 
   protected:
   template <typename F, typename... Args>

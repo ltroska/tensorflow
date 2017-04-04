@@ -3,6 +3,7 @@
 
 #include "tensorflow/hpx/distributed_runtime/hpx_worker.h"
 #include "tensorflow/hpx/distributed_runtime/hpx_master.h"
+#include "tensorflow/hpx/distributed_runtime/hpx_env.h"
 
 #include <memory>
 
@@ -47,6 +48,7 @@ class HPXServer : public ServerInterface
   // The overall server configuration.
   const ServerDef server_def_;
   Env* env_;
+  HPXEnv* hpx_env_;
 
   // The port requested for this server.
   std::string hostname_;

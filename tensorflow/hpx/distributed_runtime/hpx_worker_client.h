@@ -3,6 +3,7 @@
 
 #include "tensorflow/hpx/distributed_runtime/server/hpx_worker_server.h"
 #include "tensorflow/core/distributed_runtime/worker_env.h"
+#include "tensorflow/core/distributed_runtime/rpc/grpc_worker_service_impl.h"
 
 namespace tensorflow
 {
@@ -13,106 +14,51 @@ struct HPXWorkerClient
   using base_type =
       hpx::components::client_base<HPXWorkerClient, server::HPXWorkerServer>;
 
-  HPXWorkerClient()
-  {
-  }
+  HPXWorkerClient() = default;
 
-  HPXWorkerClient(hpx::future<hpx::id_type>&& id) : base_type(std::move(id))
-  {
-  }
+  HPXWorkerClient(hpx::future<hpx::id_type>&& id);
 
-  HPXWorkerClient(hpx::id_type&& id) : base_type(std::move(id))
-  {
-  }
+  HPXWorkerClient(hpx::id_type&& id);
 
-  std::string GetWorkerName() const
-  {
-    server::HPXWorkerServer::GetWorkerNameAction act;
-    return act(get_id());
-  }
+  std::string GetWorkerName() const;
 
   void GetStatusAsync(const GetStatusRequest* request,
                       GetStatusResponse* response,
-                      StatusCallback done)
-  {
-    server::HPXWorkerServer::GetStatusAction act;
-    AsyncCallAndAttachCallback(
-        std::move(act), request, response, std::move(done));
-  }
+                      StatusCallback done);
 
   void RegisterGraphAsync(const RegisterGraphRequest* request,
                           RegisterGraphResponse* response,
-                          StatusCallback done)
-  {
-    server::HPXWorkerServer::RegisterGraphAction act;
-    AsyncCallAndAttachCallback(
-        std::move(act), request, response, std::move(done));
-  };
+                          StatusCallback done);
 
   void DeregisterGraphAsync(const DeregisterGraphRequest* request,
                             DeregisterGraphResponse* response,
-                            StatusCallback done)
-  {
-    server::HPXWorkerServer::DeregisterGraphAction act;
-    AsyncCallAndAttachCallback(
-        std::move(act), request, response, std::move(done));
-  };
+                            StatusCallback done);
 
   void RunGraphAsync(CallOptions* opts,
                      const RunGraphRequest* request,
                      RunGraphResponse* response,
-                     StatusCallback done)
-  {
-    server::HPXWorkerServer::RunGraphAction act;
-    AsyncCallAndAttachCallback(
-        std::move(act), request, response, std::move(done));
-  };
+                     StatusCallback done);
 
   void CleanupGraphAsync(const CleanupGraphRequest* request,
                          CleanupGraphResponse* response,
-                         StatusCallback done)
-  {
-    server::HPXWorkerServer::CleanupGraphAction act;
-    AsyncCallAndAttachCallback(
-        std::move(act), request, response, std::move(done));
-  };
+                         StatusCallback done);
 
   void CleanupAllAsync(const CleanupAllRequest* request,
                        CleanupAllResponse* response,
-                       StatusCallback done)
-  {
-    server::HPXWorkerServer::CleanupAllAction act;
-    AsyncCallAndAttachCallback(
-        std::move(act), request, response, std::move(done));
-  };
+                       StatusCallback done);
 
   void RecvTensorAsync(CallOptions* opts,
                        const RecvTensorRequest* request,
-                       RecvTensorResponse* response,
-                       StatusCallback done)
-  {
-    server::HPXWorkerServer::RecvTensorAction act;
-    AsyncCallAndAttachCallback(
-        std::move(act), request, response, std::move(done));
-  };
+                       TensorResponse* response,
+                       StatusCallback done);
 
   void LoggingAsync(const LoggingRequest* request,
                     LoggingResponse* response,
-                    StatusCallback done)
-  {
-    server::HPXWorkerServer::LoggingAction act;
-    AsyncCallAndAttachCallback(
-        std::move(act), request, response, std::move(done));
-  };
+                    StatusCallback done);
 
   void TracingAsync(const TracingRequest* request,
                     TracingResponse* response,
-                    StatusCallback done)
-  {
-    server::HPXWorkerServer::TracingAction act;
-    AsyncCallAndAttachCallback(
-        std::move(act), request, response, std::move(done));
-  };
+                    StatusCallback done);
 
   protected:
   template <typename Action, typename Req, typename Resp>

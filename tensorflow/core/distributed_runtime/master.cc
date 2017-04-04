@@ -95,7 +95,7 @@ void Master::GC() {
       if (static_cast<int64>(env->NowMicros()) - lat > num_micros) {
         handles.push_back(entry.first);
         auto* sess = entry.second;
-        SchedClosure([this, sess]() {
+        env_->env->SchedClosure([this, sess]() {
           LOG(WARNING) << "GC session " << sess->handle() << " after "
                        << session_gc_seconds_ << " seconds.  "
                        << "Note that if you are starting multiple replicas "
@@ -282,8 +282,8 @@ class DeviceFinder {
 };
 
 void Master::CreateSession(const CreateSessionRequest* req,
-                           CreateSessionResponse* resp, MyClosure done) {
-  SchedClosure([this, req, resp, done]() {
+                           CreateSessionResponse* resp, MyClosure done) {  
+  env_->env->SchedClosure([this, req, resp, done]() {
     Status status = ValidateExternalGraphDefSyntax(req->graph_def());
     if (status.ok()) {
       // Ping all the workers and build the list of devices that the
@@ -332,7 +332,7 @@ void Master::ExtendSession(const ExtendSessionRequest* req,
   session->Ref();
   mu_.unlock();
 
-  SchedClosure([session, req, resp, done]() {
+  env_->env->SchedClosure([session, req, resp, done]() {
     Status status = ValidateExternalGraphDefSyntax(req->graph_def());
     if (status.ok()) {
       status = session->Extend(req, resp);
@@ -354,7 +354,7 @@ void Master::PartialRunSetup(const PartialRunSetupRequest* req,
   session->Ref();
   mu_.unlock();
 
-  SchedClosure([this, session, req, resp, done]() {
+  env_->env->SchedClosure([this, session, req, resp, done]() {
     Status s = session->PartialRunSetup(req, resp);
     session->Unref();
     done(s);
@@ -374,7 +374,8 @@ void Master::RunStep(CallOptions* opts, const RunStepRequestWrapper* req,
   session->Ref();
   mu_.unlock();
 
-  SchedClosure([this, start_time, session, opts, req, resp, done]() {
+  env_->env->SchedClosure([this, start_time, session, opts, req, resp, done]() {
+    auto start_time2 = std::chrono::high_resolution_clock::now();
     Status status = session->Run(opts, *req, resp);
     session->Unref();
     uint64 done_time = env_->env->NowMicros();
@@ -407,7 +408,7 @@ void Master::CloseSession(const CloseSessionRequest* req,
 
   // Session Close() blocks on thread shutdown. Therefore, we need to
   // delete it in non-critical thread.
-  SchedClosure([session, done]() {
+  env_->env->SchedClosure([session, done]() {
     Status s = session->Close();
     session->Unref();
     done(s);
@@ -416,7 +417,7 @@ void Master::CloseSession(const CloseSessionRequest* req,
 
 void Master::ListDevices(const ListDevicesRequest* req,
                          ListDevicesResponse* resp, MyClosure done) {
-  SchedClosure([this, req, resp, done]() {
+  env_->env->SchedClosure([this, req, resp, done]() {
     std::vector<Device*> remote_devices;
     Status s = DeviceFinder::GetRemoteDevices({}, env_, &remote_devices);
     if (s.ok()) {
@@ -480,7 +481,7 @@ void Master::Reset(const ResetRequest* req, ResetResponse* resp,
 
   CleanupWorkers(*req);
 
-  SchedClosure([sessions_to_close, done]() {
+  env_->env->SchedClosure([sessions_to_close, done]() {
     Status s;
     for (MasterSession* session : sessions_to_close) {
       s.Update(session->Close());

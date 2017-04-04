@@ -19,115 +19,46 @@ namespace server
   struct HPXMasterServer
       : public hpx::components::simple_component_base<HPXMasterServer>
   {
-    HPXMasterServer()
-    {
-    }
+    HPXMasterServer() = default;
 
-    ~HPXMasterServer()
-    {
-    }
+    ~HPXMasterServer() = default;
 
-    HPXMasterServer(Master* master) : master_(master)
-    {
-    }
+    HPXMasterServer(Master* master);
 
     std::pair<Status, CreateSessionResponse>
-    CreateSession(CreateSessionRequest const& request)
-    {
-      CreateSessionResponse response;
-      return std::make_pair(
-          CallMasterSync(&Master::CreateSession, &request, &response),
-          std::move(response));
-    }
+    CreateSession(CreateSessionRequest const& request);
     HPX_DEFINE_COMPONENT_ACTION(HPXMasterServer,
                                 CreateSession,
                                 CreateSessionAction);
 
     std::pair<Status, ExtendSessionResponse>
-    ExtendSession(ExtendSessionRequest const& request)
-    {
-
-      ExtendSessionResponse response;
-      return std::make_pair(
-          CallMasterSync(&Master::ExtendSession, &request, &response),
-          std::move(response));
-    }
+    ExtendSession(ExtendSessionRequest const& request);
     HPX_DEFINE_COMPONENT_ACTION(HPXMasterServer,
                                 ExtendSession,
                                 ExtendSessionAction);
 
     std::pair<Status, PartialRunSetupResponse>
-    PartialRunSetup(PartialRunSetupRequest const& request)
-    {
-
-      PartialRunSetupResponse response;
-      return std::make_pair(
-          CallMasterSync(&Master::PartialRunSetup, &request, &response),
-          std::move(response));
-    }
+    PartialRunSetup(PartialRunSetupRequest const& request);
     HPX_DEFINE_COMPONENT_ACTION(HPXMasterServer,
                                 PartialRunSetup,
                                 PartialRunSetupAction);
 
-    std::pair<Status, RunStepResponse> RunStep(RunStepRequest const& request)
-    {
-      CallOptions opt;
-      RunStepResponse response;
-
-      RunStepRequestWrapper* wrapped_request =
-          new ProtoRunStepRequest(&request);
-      MutableRunStepResponseWrapper* wrapped_response =
-          new NonOwnedProtoRunStepResponse(&response);
-
-      hpx::lcos::local::promise<Status> p;
-      auto fut = p.get_future();
-
-      auto done = [&p, wrapped_request, wrapped_response](Status const& s) {
-        p.set_value(s);
-        delete wrapped_request;
-        delete wrapped_response;
-      };
-
-      (master_->RunStep)(
-          &opt, wrapped_request, wrapped_response, std::move(done));
-
-      return std::make_pair(std::move(fut.get()), std::move(response));
-    }
+    std::pair<Status, RunStepResponse> RunStep(RunStepRequest const& request);
     HPX_DEFINE_COMPONENT_ACTION(HPXMasterServer, RunStep, RunStepAction);
 
     std::pair<Status, CloseSessionResponse>
-    CloseSession(CloseSessionRequest const& request)
-    {
-      CloseSessionResponse response;
-
-      return std::make_pair(
-          CallMasterSync(&Master::CloseSession, &request, &response),
-          std::move(response));
-    }
+    CloseSession(CloseSessionRequest const& request);
     HPX_DEFINE_COMPONENT_ACTION(HPXMasterServer,
                                 CloseSession,
                                 CloseSessionAction);
 
     std::pair<Status, ListDevicesResponse>
-    ListDevices(ListDevicesRequest const& request)
-    {
-
-      ListDevicesResponse response;
-      return std::make_pair(
-          CallMasterSync(&Master::ListDevices, &request, &response),
-          std::move(response));
-    }
+    ListDevices(ListDevicesRequest const& request);
     HPX_DEFINE_COMPONENT_ACTION(HPXMasterServer,
                                 ListDevices,
                                 ListDevicesAction);
 
-    std::pair<Status, ResetResponse> Reset(ResetRequest const& request)
-    {
-
-      ResetResponse response;
-      return std::make_pair(CallMasterSync(&Master::Reset, &request, &response),
-                            std::move(response));
-    }
+    std::pair<Status, ResetResponse> Reset(ResetRequest const& request);
     HPX_DEFINE_COMPONENT_ACTION(HPXMasterServer, Reset, ResetAction);
 
 protected:

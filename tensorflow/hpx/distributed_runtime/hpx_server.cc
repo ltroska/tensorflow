@@ -61,8 +61,6 @@ Status HPXServer::Init()
 {
   mutex_lock l(mu_);
   CHECK_EQ(state_, NEW);
-  master_env_.env = env_;
-  worker_env_.env = env_;
 
   SessionOptions sess_opts;
   sess_opts.config = server_def_.default_session_config();
@@ -151,6 +149,10 @@ Status HPXServer::Init()
   bool is_root = (hostname_ == root_hostname && port_ == root_port);
   init_.start(hostname_, port_, root_hostname, root_port, is_root);
 
+  hpx_env_ = new HPXEnv(env_, &init_);
+
+  master_env_.env = hpx_env_;
+  worker_env_.env = hpx_env_;
   hpx_worker_ = HPXWorker(&init_, name_prefix, id, &worker_env_);
   worker_env_.worker_cache = NewHPXWorkerCacheWithLocalWorker(
       &hpx_worker_, name_prefix, num_workers, &init_);
@@ -205,7 +207,7 @@ Status HPXServer::Stop()
     state_ = STOPPED;
     return Status::OK();
   case STARTED:
-    MaybeRunAsHPXThreadGlobal([this]() { init_.stop(); }, "Stop", &init_);
+    init_.stop();
     return Status::OK();
   case STOPPED:
     LOG(INFO) << "Server already stopped (target: " << target() << ")";

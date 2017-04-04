@@ -849,6 +849,7 @@ private:
     std::unordered_map<std::string, hpx::lcos::shared_future<Entry> >
     future_map_;
     std::unordered_map<std::string, bool> is_set_map_;
+
     std::mutex finish_mutex_;
     //  std::condition_variable maybe_finished;
     bool was_finished;
@@ -1124,6 +1125,7 @@ private:
   void HPXExecutorState::SignalNodeDone()
   {
     std::unique_lock<std::mutex> lk(finish_mutex_);
+
     num_outstanding_ops_--;
     num_computed_ops_++;
 
@@ -1318,18 +1320,19 @@ private:
 
         if (stats)
           nodestats::SetOpStart(stats);
+
         device->ComputeAsync(CHECK_NOTNULL(async), &state->ctx, done);
       } else {
         OpKernelContext ctx(&params, item.num_outputs);
         if (stats)
           nodestats::SetOpStart(stats);
-          
-        auto f = [device, op_kernel, &ctx](){
-          device->Compute(CHECK_NOTNULL(op_kernel), &ctx);
-        };
-        
-        hpx::threads::run_as_os_thread(std::move(f));
-        
+
+        // auto f = [device, op_kernel, &ctx](){
+        device->Compute(CHECK_NOTNULL(op_kernel), &ctx);
+        // };
+
+        //        hpx::threads::run_as_os_thread(std::move(f)).get();
+
         if (stats)
           nodestats::SetOpEnd(stats);
 
@@ -1370,9 +1373,6 @@ private:
 
       SignalNodeDone();
     }
-
-    // notify main thread that computation is done
-    //  maybe_finished.notify_one();
   }
 
   Status
@@ -1657,7 +1657,6 @@ private:
                                                const int64 base_iter,
                                                std::string const& key_prefix)
   {
-
     {
       std::lock_guard<std::mutex> lk(finish_mutex_);
       num_outstanding_ops_++;

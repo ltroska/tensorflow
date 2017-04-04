@@ -928,7 +928,7 @@ private:
                           NodeExecStats* stats);
 
     // After processing the outputs, propagates the outputs to their dsts.
-    void PropagateOutputs(const Node* node,
+    void PropagateOutputs(const NodeItem* item,
                           const EntryVector& outputs,
                           int64 iter_id,
                           const int64 base_iter,
@@ -1259,6 +1259,8 @@ private:
       params.frame_iter = FrameAndIter(0, iter_id);
       params.is_input_dead = is_input_dead;
       params.output_attr_array = item.output_attrs();
+      
+  auto then = std::chrono::system_clock::now();
 
       if (launch_async) {
         AsyncOpKernel* async = item.kernel->AsAsync();
@@ -1266,7 +1268,7 @@ private:
         AsyncState* state =
             new AsyncState(params, is_dead, &item, first_input, stats);
 
-        auto done = [this, state, iter_id, base_iter, key_prefix]() mutable {
+        auto done = [this, state, iter_id, base_iter, key_prefix, then]() mutable {
           Device* device = impl_->params_.device;
 
           // Shorthands
@@ -1281,7 +1283,7 @@ private:
 
           if (stats)
             nodestats::SetOpEnd(stats);
-
+          
           EntryVector outputs;
           Status s = ProcessOutputs(*state->item, &state->ctx, &outputs, stats);
           if (stats)
@@ -1293,7 +1295,7 @@ private:
           }
 
           if (s.ok()) {
-            PropagateOutputs(node,
+            PropagateOutputs(state->item,
                              std::move(outputs),
                              iter_id,
                              base_iter,
@@ -1327,15 +1329,15 @@ private:
         if (stats)
           nodestats::SetOpStart(stats);
 
-        // auto f = [device, op_kernel, &ctx](){
-        device->Compute(CHECK_NOTNULL(op_kernel), &ctx);
-        // };
+        auto f = [device, op_kernel, &ctx](){
+          device->Compute(CHECK_NOTNULL(op_kernel), &ctx);
+        };
 
-        //        hpx::threads::run_as_os_thread(std::move(f)).get();
+        hpx::threads::run_as_os_thread(std::move(f)).get();
 
         if (stats)
           nodestats::SetOpEnd(stats);
-
+          
         Status s = ProcessOutputs(item, &ctx, &outputs, stats);
         if (s.ok() && impl_->device_record_tensor_accesses_) {
           // Get the list of all tensors accessed during the execution
@@ -1357,7 +1359,7 @@ private:
 
       if (s.ok()) {
         PropagateOutputs(
-            node, std::move(outputs), iter_id, base_iter, key_prefix, is_dead);
+            &item, std::move(outputs), iter_id, base_iter, key_prefix, is_dead);
       }
       outputs.clear();
 
@@ -1575,13 +1577,14 @@ private:
     return s;
   }
 
-  void HPXExecutorState::PropagateOutputs(const Node* node,
+  void HPXExecutorState::PropagateOutputs(const NodeItem* item,
                                           const EntryVector& outputs,
                                           int64 iter_id,
                                           const int64 base_iter,
                                           std::string key_prefix,
                                           const bool is_dead)
   {
+    const Node* node = item->node;
     // each (nested) loop appends iteration of parent to the prefix
     if (IsEnter(node))
       key_prefix += std::to_string(iter_id) + ";";
@@ -1601,20 +1604,28 @@ private:
             key_prefix.substr(0, key_prefix.size() - numDigits(iter_id) - 1);
     }
 
+    auto const& gview = impl_->gview_;
+
     unsigned src_id = node->id();
 
     std::lock_guard<std::recursive_mutex> lk(map_mutex_);
 
-    for (const Edge* e : node->out_edges()) {
-      unsigned dst_id = e->dst()->id();
+    const int num_output_edges = item->num_output_edges;
+    const EdgeInfo* edges = item->output_edge_list();
+    for (int idx = 0; idx < num_output_edges; ++idx) {
+      const EdgeInfo& e = edges[idx];
+      unsigned dst_id = e.dst_id;
 
       std::string key = key_prefix + std::to_string(step_id_) + ";" +
                         std::to_string(iter_id) + ";" + std::to_string(src_id) +
                         ";" + std::to_string(dst_id);
+      
+      unsigned src_slot = e.output_slot;
+      unsigned dst_slot = e.input_slot;
+      const Node* dst = gview.node(dst_id)->node;
+      bool is_control_edge = (src_slot == Graph::kControlSlot);
 
-      if (!e->IsControlEdge()) {
-        unsigned src_slot = e->src_output();
-        unsigned dst_slot = e->dst_input();
+      if (!is_control_edge) {
 
         key += ";" + std::to_string(src_slot) + ";" + std::to_string(dst_slot);
       }
@@ -1627,23 +1638,31 @@ private:
         // node,
         // the destination node is dead.
         if ((is_dead ||
-             (!e->IsControlEdge() && !outputs[e->src_output()].has_value)) &&
+             (!is_control_edge && !outputs[src_slot].has_value)) &&
             is_loop_node_[dst_id]) {
           // need to schedule exit node for cleanup of potentially nested loops
-          if (IsExit(e->dst()) && is_dead)
-            Schedule(e->dst(), iter_id, base_iter, key_prefix);
+          if (IsExit(dst) && is_dead)
+            Schedule(dst, iter_id, base_iter, key_prefix);
 
-          if (!e->IsControlEdge() && outputs[e->src_output()].has_value)
-            val = outputs[e->src_output()];
-
+          if (!is_control_edge && outputs[src_slot].has_value)
+          {
+            if (e.is_last)
+              val = std::move(outputs[src_slot]);
+            else
+              val = outputs[src_slot];
+              
+          }
           val.is_dead = true;
         } else if (!is_dead) {
-          if (!e->IsControlEdge()) {
+          if (!is_control_edge) {
             // schedule exit of the loop
-            if (IsExit(e->dst()) && outputs[e->src_output()].has_value)
-              Schedule(e->dst(), iter_id, base_iter, key_prefix);
+            if (IsExit(dst) && outputs[src_slot].has_value)
+              Schedule(dst, iter_id, base_iter, key_prefix);
 
-            val = outputs[e->src_output()];
+            if (e.is_last)
+              val = std::move(outputs[src_slot]);
+            else
+              val = outputs[src_slot];
           }
         }
 

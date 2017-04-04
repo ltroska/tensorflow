@@ -43,6 +43,8 @@ class HPXServer : public ServerInterface
   Status Init();
 
   std::unique_ptr<Master> CreateMaster(MasterEnv* master_env);
+  Status WorkerCacheFactory(const ServerDef& server_def,
+                            WorkerCacheInterface** worker_cache);
 
   private:
   // The overall server configuration.
@@ -53,6 +55,8 @@ class HPXServer : public ServerInterface
   // The port requested for this server.
   std::string hostname_;
   std::string port_;
+  
+  std::size_t num_workers_;
 
   // Guards state transitions.
   mutex mu_;
@@ -83,7 +87,7 @@ class HPXServer : public ServerInterface
   HPXWorker hpx_worker_;
 
   global_runtime init_;
-  
+
   bool with_hpx_executor_;
 };
 

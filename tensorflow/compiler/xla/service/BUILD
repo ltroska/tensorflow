@@ -125,6 +125,7 @@ cc_test(
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla:test_helpers",
         "//tensorflow/compiler/xla:util",
+        "//tensorflow/compiler/xla/tests:hlo_test_base",
         "//tensorflow/core:test_main",
     ],
 )
@@ -151,6 +152,7 @@ cc_test(
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla:status_macros",
         "//tensorflow/compiler/xla:test_helpers",
+        "//tensorflow/compiler/xla:util",
         "//tensorflow/compiler/xla:xla_data_proto",
         "//tensorflow/compiler/xla/service:hlo",
         "//tensorflow/compiler/xla/tests:hlo_test_base",
@@ -492,6 +494,36 @@ cc_library(
 )
 
 cc_library(
+    name = "liveness_util",
+    srcs = ["liveness_util.cc"],
+    hdrs = ["liveness_util.h"],
+    deps = [
+        ":hlo",
+        ":logical_buffer",
+        ":tuple_points_to_analysis",
+        "//tensorflow/compiler/xla:shape_util",
+        "//tensorflow/compiler/xla:types",
+        "//tensorflow/compiler/xla:util",
+        "//tensorflow/core:lib",
+    ],
+)
+
+cc_test(
+    name = "liveness_util_test",
+    srcs = ["liveness_util_test.cc"],
+    deps = [
+        ":hlo",
+        ":liveness_util",
+        ":tuple_points_to_analysis",
+        "//tensorflow/compiler/xla:shape_util",
+        "//tensorflow/compiler/xla:types",
+        "//tensorflow/compiler/xla:util",
+        "//tensorflow/compiler/xla/tests:hlo_test_base",
+        "//tensorflow/core:test_main",
+    ],
+)
+
+cc_library(
     name = "buffer_liveness",
     srcs = [
         "buffer_liveness.cc",
@@ -502,6 +534,7 @@ cc_library(
     deps = [
         ":hlo",
         ":hlo_ordering",
+        ":liveness_util",
         ":logical_buffer",
         ":tuple_points_to_analysis",
         "//tensorflow/compiler/xla:shape_util",
@@ -584,6 +617,7 @@ cc_library(
     ],
     deps = [
         ":hlo",
+        ":liveness_util",
         ":logical_buffer",
         ":tuple_points_to_analysis",
         "//tensorflow/compiler/xla:statusor",
@@ -728,6 +762,7 @@ cc_library(
     hdrs = ["reshape_mover.h"],
     deps = [
         ":hlo_pass",
+        "//tensorflow/compiler/xla:literal_util",
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla:util",
     ],
@@ -1099,13 +1134,31 @@ cc_library(
 )
 
 cc_library(
+    name = "hlo_verifier",
+    srcs = ["hlo_verifier.cc"],
+    hdrs = ["hlo_verifier.h"],
+    deps = [
+        ":hlo",
+        ":hlo_pass",
+        "//tensorflow/compiler/xla:status",
+        "//tensorflow/compiler/xla:status_macros",
+        "//tensorflow/compiler/xla:statusor",
+        "//tensorflow/compiler/xla:types",
+        "//tensorflow/compiler/xla:util",
+        "//tensorflow/core:lib",
+    ],
+)
+
+cc_library(
     name = "hlo_rematerialization",
     srcs = ["hlo_rematerialization.cc"],
     hdrs = ["hlo_rematerialization.h"],
     deps = [
         ":buffer_liveness",
+        ":call_graph",
         ":hlo",
         ":hlo_cost_analysis",
+        ":hlo_dce",
         ":hlo_ordering",
         ":logical_buffer",
         ":tuple_points_to_analysis",
@@ -1249,6 +1302,22 @@ cc_test(
 )
 
 cc_library(
+    name = "hlo_constant_folding",
+    srcs = ["hlo_constant_folding.cc"],
+    hdrs = ["hlo_constant_folding.h"],
+    deps = [
+        ":hlo",
+        ":hlo_pass",
+        "//tensorflow/compiler/xla:literal_util",
+        "//tensorflow/compiler/xla:shape_util",
+        "//tensorflow/compiler/xla:status_macros",
+        "//tensorflow/compiler/xla:types",
+        "//tensorflow/compiler/xla:xla_data_proto",
+        "//tensorflow/core:lib",
+    ],
+)
+
+cc_library(
     name = "device_memory_allocator",
     srcs = ["device_memory_allocator.cc"],
     hdrs = ["device_memory_allocator.h"],
@@ -1346,6 +1415,7 @@ cc_library(
         "//tensorflow/compiler/xla:literal_util",
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla:types",
+        "//tensorflow/compiler/xla:window_util",
         "//tensorflow/compiler/xla/legacy_flags:hlo_graph_dumper_flags",
         "//tensorflow/core:lib",
     ],

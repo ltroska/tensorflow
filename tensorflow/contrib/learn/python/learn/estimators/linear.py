@@ -149,21 +149,16 @@ def _linear_model_fn(features, labels, mode, params, config=None):
       values=tuple(six.itervalues(features)),
       partitioner=partitioner) as scope:
     if joint_weights:
-      logits, _, _ = (
-          layers.joint_weighted_sum_from_feature_columns(
-              columns_to_tensors=features,
-              feature_columns=feature_columns,
-              num_outputs=head.logits_dimension,
-              weight_collections=[parent_scope],
-              scope=scope))
+      layer_fn = layers.joint_weighted_sum_from_feature_columns
     else:
-      logits, _, _ = (
-          layers.weighted_sum_from_feature_columns(
-              columns_to_tensors=features,
-              feature_columns=feature_columns,
-              num_outputs=head.logits_dimension,
-              weight_collections=[parent_scope],
-              scope=scope))
+      layer_fn = layers.weighted_sum_from_feature_columns
+        
+    logits, _, _ = layer_fn(
+            columns_to_tensors=features,
+            feature_columns=feature_columns,
+            num_outputs=head.logits_dimension,
+            weight_collections=[parent_scope],
+            scope=scope)
 
     def _train_op_fn(loss):
       global_step = contrib_variables.get_global_step()
@@ -236,6 +231,8 @@ def sdca_model_fn(features, labels, mode, params):
 
   with variable_scope.variable_op_scope(
       features.values(), parent_scope) as scope:
+    features = features.copy()
+    features.update(layers.transform_features(features, feature_columns))
     logits, columns_to_variables, bias = (
         layers.weighted_sum_from_feature_columns(
             columns_to_tensors=features,
@@ -419,7 +416,7 @@ class LinearClassifier(estimator.Estimator):
       enable_centered_bias = False
       logging.warning("centered_bias is not supported with SDCA, "
                       "please disable it explicitly.")
-    head = head_lib._multi_class_head(  # pylint: disable=protected-access
+    head = head_lib.multi_class_head(
         n_classes,
         weight_column_name=weight_column_name,
         enable_centered_bias=enable_centered_bias)
@@ -686,7 +683,7 @@ class LinearRegressor(estimator.Estimator):
       enable_centered_bias = False
       logging.warning("centered_bias is not supported with SDCA, "
                       "please disable it explicitly.")
-    head = head_lib._regression_head(  # pylint: disable=protected-access
+    head = head_lib.regression_head(
         weight_column_name=weight_column_name,
         label_dimension=label_dimension,
         enable_centered_bias=enable_centered_bias)
@@ -824,8 +821,7 @@ class LinearRegressor(estimator.Estimator):
         exports_to_keep=exports_to_keep)
 
 
-# TODO(zakaria): Make it public when b/34751732 is fixed.
-class _LinearEstimator(estimator.Estimator):
+class LinearEstimator(estimator.Estimator):
   """Linear model with user specified head.
 
   Train a generalized linear model to predict label value given observation of
@@ -840,9 +836,9 @@ class _LinearEstimator(estimator.Estimator):
 
   sparse_feature_a_x_sparse_feature_b = crossed_column(...)
 
-  estimator = _LinearEstimator(
+  estimator = LinearEstimator(
       feature_columns=[sparse_column_a, sparse_feature_a_x_sparse_feature_b],
-      head=head_lib._poisson_regression_head())
+      head=head_lib.poisson_regression_head())
 
   # Input builders
   def input_fn_train: # returns x, y
@@ -879,7 +875,7 @@ class _LinearEstimator(estimator.Estimator):
                _joint_weights=False,
                config=None,
                feature_engineering_fn=None):
-    """Construct a `_LinearEstimator` object.
+    """Construct a `LinearEstimator` object.
 
     Args:
       feature_columns: An iterable containing all the feature columns used by
@@ -907,14 +903,14 @@ class _LinearEstimator(estimator.Estimator):
                         into the model.
 
     Returns:
-      A `_LinearEstimator` estimator.
+      A `LinearEstimator` estimator.
 
     Raises:
       ValueError: if optimizer is not supported, e.g., SDCAOptimizer
     """
     assert feature_columns
     if isinstance(optimizer, sdca_optimizer.SDCAOptimizer):
-      raise ValueError("_LinearEstimator does not support SDCA optimizer.")
+      raise ValueError("LinearEstimator does not support SDCA optimizer.")
 
     params = {
         "head": head,
@@ -923,7 +919,7 @@ class _LinearEstimator(estimator.Estimator):
         "gradient_clip_norm": gradient_clip_norm,
         "joint_weights": _joint_weights,
     }
-    super(_LinearEstimator, self).__init__(
+    super(LinearEstimator, self).__init__(
         model_fn=_linear_model_fn,
         model_dir=model_dir,
         config=config,

@@ -30,6 +30,7 @@ HPXServer::HPXServer(const ServerDef& server_def, Env* env)
     , env_(env)
     , state_(NEW)
     , with_hpx_executor_(!StringPiece(server_def.protocol()).ends_with(":tf"))
+    , num_workers_(0)
 {
 }
 
@@ -47,10 +48,10 @@ HPXServer::~HPXServer()
   // free all stateless OpKernels, and pass over borrowed stateful
   // OpKernels, which are also held in their respective devices'
   // OpSegments.)
-  delete worker_env_.graph_mgr;
-  delete worker_env_.device_mgr;
-
-  delete worker_env_.rendezvous_mgr;
+  if (worker_env_.session_mgr != nullptr) {
+    delete worker_env_.session_mgr;  // Deletes graph_mgr's.
+  }
+  delete worker_env_.device_mgr;;
 
   // Do not delete (as these are not owned by the server):
   // - master_env_.env
@@ -76,8 +77,9 @@ Status HPXServer::Init()
       sess_opts, name_prefix, &master_env_.local_devices));
   worker_env_.device_mgr = new DeviceMgr(master_env_.local_devices);
   string unused;
+  string default_worker_name;
   if (!DeviceNameUtils::SplitDeviceName(master_env_.local_devices[0]->name(),
-                                        &worker_env_.worker_name,
+                                        &default_worker_name,
                                         &unused)) {
     return errors::Internal("Could not parse worker name.");
   }
@@ -113,7 +115,7 @@ Status HPXServer::Init()
         "Job \"", server_def_.job_name(), "\" was not defined in cluster");
   }
 
-  std::size_t num_workers = 0;
+  num_workers_ = 0;
   std::size_t id = 0;
 
   std::string root_hostname;
@@ -138,9 +140,9 @@ Status HPXServer::Init()
       }
     } else {
       if (job.name() == server_def_.job_name())
-        id = num_workers + server_def_.task_index();
+        id = num_workers_ + server_def_.task_index();
 
-      num_workers += job.tasks_size();
+      num_workers_ += job.tasks_size();
     }
   }
 
@@ -155,29 +157,49 @@ Status HPXServer::Init()
   master_env_.env = hpx_env_;
   worker_env_.env = hpx_env_;
   hpx_worker_ = HPXWorker(&init_, name_prefix, id, &worker_env_);
-  worker_env_.worker_cache = NewHPXWorkerCacheWithLocalWorker(
-      &hpx_worker_, name_prefix, num_workers, &init_);
+  
+  WorkerCacheInterface* worker_cache;
+  TF_RETURN_IF_ERROR(WorkerCacheFactory(server_def_, &worker_cache));
+  CHECK_NE(nullptr, worker_cache);
+  
+  std::unique_ptr<RendezvousMgrInterface> rendezvous_mgr(
+      new RpcRendezvousMgr(&worker_env_, name_prefix, worker_cache));
+  worker_env_.session_mgr = new SessionMgr(
+      &worker_env_, SessionMgr::WorkerNameFromServerDef(server_def_),
+      std::unique_ptr<WorkerCacheInterface>(worker_cache),
+      std::move(rendezvous_mgr),
+      [this](const ServerDef& server_def, WorkerCacheInterface** worker_cache) {
+        return WorkerCacheFactory(server_def, worker_cache);
+      });
+  worker_env_.compute_pool = ComputePool(sess_opts);
 
   // Finish setting up master environment.
   master_impl_ = CreateMaster(&master_env_);
   hpx_master_ = HPXMaster(&init_, hostname_ + ":" + port_, master_impl_.get());
   master_env_.ops = OpRegistry::Global();
-  master_env_.worker_cache = worker_env_.worker_cache;
-  master_env_.master_session_factory = [](const SessionOptions& options,
-                                          const MasterEnv* env,
-                                          std::vector<Device*>* remote_devs) {
-    return new MasterSession(
-        options, env, remote_devs, CreateNoOpStatsPublisher);
-  };
-
-  // Finish setting up worker environment.
-  worker_env_.graph_mgr = new GraphMgr(&worker_env_, with_hpx_executor_);
-  worker_env_.compute_pool = ComputePool(sess_opts);
-  worker_env_.rendezvous_mgr = new RpcRendezvousMgr(&worker_env_);
+  master_env_.worker_cache = worker_cache;
+  master_env_.master_session_factory =
+      [](const SessionOptions& options, const MasterEnv* env,
+         std::unique_ptr<std::vector<std::unique_ptr<Device>>> remote_devs) {
+        return new MasterSession(options, env, std::move(remote_devs),
+                                 CreateNoOpStatsPublisher);
+      };
 
   // Provide direct access to the master from in-process clients.
   LocalMaster::Register(target(), master_impl_.get());
 
+  return Status::OK();
+}
+
+Status HPXServer::WorkerCacheFactory(const ServerDef& server_def,
+                                      WorkerCacheInterface** worker_cache) {
+  string name_prefix = strings::StrCat("/job:",
+                                       server_def_.job_name(),
+                                       "/replica:0",
+                                       "/task:",
+                                       server_def_.task_index());
+  *worker_cache = NewHPXWorkerCacheWithLocalWorker(
+      &hpx_worker_, name_prefix, num_workers_, &init_);
   return Status::OK();
 }
 

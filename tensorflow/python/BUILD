@@ -45,7 +45,6 @@ py_library(
         ":check_ops",
         ":client",
         ":client_testlib",
-        ":cloud_ops",
         ":confusion_matrix",
         ":control_flow_ops",
         ":errors",
@@ -65,6 +64,7 @@ py_library(
         ":session_ops",
         ":sets",
         ":sparse_ops",
+        ":spectral_ops",
         ":standard_ops",
         ":state_ops",
         ":string_ops",
@@ -74,6 +74,7 @@ py_library(
         ":tensor_array_ops",
         ":training",
         ":ops",
+        ":saver_test_utils",
         ":test_ops",  # TODO: Break testing code out into separate rule.
         ":util",
         ":weights_broadcast_ops",
@@ -123,38 +124,6 @@ py_library(
     deps = [":platform_benchmark"],
 )
 
-py_library(
-    name = "cloud_ops",
-    srcs = [
-        "ops/cloud/__init__.py",
-        "ops/cloud/bigquery_reader_ops.py",
-        "ops/cloud/cloud.py",
-    ],
-    srcs_version = "PY2AND3",
-    deps = [
-        ":cloud_ops_gen",
-        ":framework_for_generated_wrappers",
-    ],
-)
-
-tf_py_test(
-    name = "bigquery_reader_ops_test",
-    size = "small",
-    srcs = ["ops/cloud/bigquery_reader_ops_test.py"],
-    additional_deps = [
-        ":array_ops",
-        ":client_testlib",
-        ":cloud_ops",
-        ":data_flow_ops",
-        ":io_ops",
-        ":parsing_ops",
-        ":util",
-        "//tensorflow/core/kernels/cloud:bigquery_reader_ops",
-        "//tensorflow/core:cloud_ops_op_lib",
-    ],
-    tags = ["manual"],
-)
-
 tf_py_test(
     name = "resource_loader_test",
     size = "small",
@@ -196,6 +165,15 @@ cc_library(
 )
 
 cc_library(
+    name = "ndarray_tensor_bridge",
+    srcs = ["lib/core/ndarray_tensor_bridge.cc"],
+    hdrs = ["lib/core/ndarray_tensor_bridge.h"],
+    deps = [
+        ":numpy_lib",
+    ],
+)
+
+cc_library(
     name = "kernel_registry",
     srcs = ["util/kernel_registry.cc"],
     hdrs = ["util/kernel_registry.h"],
@@ -211,6 +189,7 @@ cc_library(
     srcs = ["lib/core/py_func.cc"],
     hdrs = ["lib/core/py_func.h"],
     deps = [
+        ":ndarray_tensor_bridge",
         ":numpy_lib",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
@@ -254,8 +233,8 @@ cc_binary(
     }),
     linkshared = 1,
     deps = [
-        "//:protobuf_headers",
         "//tensorflow/core:framework_headers_lib",
+        "@protobuf//:protobuf_headers",
     ],
 )
 
@@ -1018,11 +997,6 @@ tf_gen_op_wrapper_private_py(
 )
 
 tf_gen_op_wrapper_private_py(
-    name = "cloud_ops_gen",
-    require_shape_functions = True,
-)
-
-tf_gen_op_wrapper_private_py(
     name = "control_flow_ops_gen",
     require_shape_functions = True,
     visibility = ["//learning/brain/python/ops:__pkg__"],
@@ -1148,6 +1122,11 @@ tf_gen_op_wrapper_private_py(
 
 tf_gen_op_wrapper_private_py(
     name = "sparse_ops_gen",
+    require_shape_functions = True,
+)
+
+tf_gen_op_wrapper_private_py(
+    name = "spectral_ops_gen",
     require_shape_functions = True,
 )
 
@@ -1371,6 +1350,7 @@ py_library(
         ":math_grad",
         ":math_ops",
         ":platform",
+        ":spectral_grad",
         ":util",
         "//third_party/py/numpy",
         "@six_archive//:six",
@@ -1519,6 +1499,7 @@ py_library(
         ":math_ops_gen",
         ":sparse_ops_gen",
         ":sparse_tensor",
+        ":spectral_ops_gen",
         ":state_ops",
         ":state_ops_gen",
         ":tensor_shape",
@@ -1756,6 +1737,33 @@ py_library(
 )
 
 py_library(
+    name = "spectral_grad",
+    srcs = ["ops/spectral_grad.py"],
+    srcs_version = "PY2AND3",
+    deps = [
+        ":array_ops",
+        ":framework",
+        ":framework_for_generated_wrappers",
+        ":math_ops",
+        ":spectral_ops",
+        "//third_party/py/numpy",
+    ],
+)
+
+py_library(
+    name = "spectral_ops",
+    srcs = ["ops/spectral_ops.py"],
+    srcs_version = "PY2AND3",
+    deps = [
+        ":array_ops",
+        ":dtypes",
+        ":framework_ops",
+        ":math_ops",
+        ":spectral_ops_gen",
+    ],
+)
+
+py_library(
     name = "confusion_matrix",
     srcs = ["ops/confusion_matrix.py"],
     srcs_version = "PY2AND3",
@@ -1856,6 +1864,7 @@ py_library(
         ":sparse_grad",
         ":sparse_ops",
         ":special_math_ops",
+        ":spectral_grad",
         ":state_grad",
         ":state_ops",
         ":string_ops",
@@ -2448,22 +2457,6 @@ py_test(
     ],
 )
 
-py_test(
-    name = "quantize_training_test",
-    size = "small",
-    srcs = [
-        "client/quantize_training_test.py",
-    ],
-    srcs_version = "PY2AND3",
-    deps = [
-        ":client",
-        ":client_testlib",
-        ":framework_for_generated_wrappers",
-        ":math_ops",
-        ":pywrap_tensorflow",
-    ],
-)
-
 py_library(
     name = "device_lib",
     srcs = ["client/device_lib.py"],
@@ -2511,6 +2504,7 @@ tf_cuda_library(
     hdrs = ["client/tf_session_helper.h"],
     deps = [
         ":construction_fails_op",
+        ":ndarray_tensor_bridge",
         ":numpy_lib",
         ":test_ops_kernels",
         "//tensorflow/c:c_api",
@@ -2538,7 +2532,6 @@ tf_py_wrap_cc(
     swig_includes = [
         "client/device_lib.i",
         "client/events_writer.i",
-        "client/quantize_training.i",
         "client/tf_session.i",
         "framework/cpp_shape_inference.i",
         "framework/python_op_gen.i",
@@ -2548,6 +2541,7 @@ tf_py_wrap_cc(
         "lib/io/py_record_reader.i",
         "lib/io/py_record_writer.i",
         "platform/base.i",
+        "training/quantize_training.i",
         "training/server_lib.i",
         "util/kernel_registry.i",
         "util/port.i",
@@ -2773,6 +2767,7 @@ py_library(
     name = "timeline",
     srcs = ["client/timeline.py"],
     srcs_version = "PY2AND3",
+    visibility = ["//visibility:public"],
     deps = [
         ":platform",
     ],
@@ -2895,6 +2890,7 @@ cuda_py_tests(
         "training/optimizer_test.py",
         "training/proximal_adagrad_test.py",
         "training/proximal_gradient_descent_test.py",
+        "training/quantize_training_test.py",
         "training/queue_runner_test.py",
         "training/rmsprop_test.py",
         "training/slot_creator_test.py",
@@ -2938,6 +2934,16 @@ cuda_py_tests(
     ],
 )
 
+py_library(
+    name = "saver_test_utils",
+    srcs = ["training/saver_test_utils.py"],
+    srcs_version = "PY2AND3",
+    deps = [
+        ":data_flow_ops_gen",
+        ":training",
+    ],
+)
+
 cuda_py_test(
     name = "saver_test",
     size = "medium",
@@ -2949,12 +2955,12 @@ cuda_py_test(
         ":client_testlib",
         ":control_flow_ops",
         ":data_flow_ops",
-        ":data_flow_ops_gen",
         ":errors",
         ":gradients",
         ":math_ops",
         ":nn_grad",
         ":nn_ops",
+        ":saver_test_utils",
         ":partitioned_variables",
         ":platform",
         ":platform_test",
@@ -3094,6 +3100,20 @@ py_test(
     ],
 )
 
+py_test(
+    name = "training_util_test",
+    size = "small",
+    srcs = ["training/training_util_test.py"],
+    srcs_version = "PY2AND3",
+    deps = [
+        ":client_testlib",
+        ":framework",
+        ":platform",
+        ":training",
+        ":variables",
+    ],
+)
+
 tf_py_test(
     name = "input_test",
     size = "small",
@@ -3141,13 +3161,9 @@ py_tests(
     name = "summary_tests",
     size = "small",
     srcs = [
-        "summary/event_accumulator_test.py",
-        "summary/event_file_inspector_test.py",
-        "summary/event_multiplexer_test.py",
-        "summary/impl/directory_watcher_test.py",
-        "summary/impl/event_file_loader_test.py",
-        "summary/impl/reservoir_test.py",
+        "summary/plugin_asset_test.py",
         "summary/summary_test.py",
+        "summary/text_summary_test.py",
         "summary/writer/writer_test.py",
     ],
     additional_deps = [
@@ -3292,39 +3308,6 @@ py_test(
     ],
 )
 
-py_library(
-    name = "docs",
-    srcs = ["framework/docs.py"],
-    srcs_version = "PY2AND3",
-)
-
-py_library(
-    name = "gen_docs_combined_lib",
-    srcs = ["framework/gen_docs_combined.py"],
-    srcs_version = "PY2AND3",
-    deps = [
-        ":docs",
-        "//tensorflow:tensorflow_py",
-        "//tensorflow/contrib/ffmpeg:ffmpeg_ops_py",
-        "//tensorflow/python/debug:debug_py",
-    ],
-)
-
-py_binary(
-    name = "gen_docs_combined",
-    srcs = ["framework/gen_docs_combined.py"],
-    main = "framework/gen_docs_combined.py",
-    srcs_version = "PY2AND3",
-    deps = [
-        ":client",
-        ":docs",
-        ":framework",
-        ":framework_for_generated_wrappers",
-        "//tensorflow:tensorflow_py",
-        "//tensorflow/python/debug:debug_py",
-    ],
-)
-
 # -----------------------------------------------------------------------------
 # Quantization
 
@@ -3438,6 +3421,25 @@ cuda_py_test(
         "//tensorflow/core:protos_all_py",
     ],
     main = "ops/split_benchmark.py",
+)
+
+cuda_py_test(
+    name = "transpose_benchmark",
+    size = "medium",
+    srcs = ["ops/transpose_benchmark.py"],
+    additional_deps = [
+        ":array_ops",
+        ":client",
+        ":client_testlib",
+        ":control_flow_ops",
+        ":framework_for_generated_wrappers",
+        ":platform",
+        ":platform_benchmark",
+        ":variables",
+        "//third_party/py/numpy",
+        "//tensorflow/core:protos_all_py",
+    ],
+    main = "ops/transpose_benchmark.py",
 )
 
 cuda_py_test(

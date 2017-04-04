@@ -1679,6 +1679,13 @@ class BatchNormTest(test.TestCase):
       with self.assertRaisesRegexp(ValueError, 'Weighted mean and variance'):
         _layers.batch_norm(inputs, batch_weights=batch_weights, fused=True)
 
+  def testParamRegularizersFused(self):
+    with ops.Graph().as_default() as g, self.test_session(g):
+      inputs = array_ops.placeholder(dtype=dtypes.float32, shape=(5, 3, 3, 7))
+      with self.assertRaisesRegexp(ValueError,
+                                   'Regularizers are not currently'):
+        _layers.batch_norm(inputs, param_regularizers={}, fused=True)
+
   def _testCreateOp(self, fused):
     height, width = 3, 3
     with self.test_session():
@@ -1688,12 +1695,37 @@ class BatchNormTest(test.TestCase):
                        'BatchNorm/batchnorm')
       self.assertTrue(output.op.name.startswith(expected_name))
       self.assertListEqual(output.get_shape().as_list(), [5, height, width, 3])
+      self.assertEqual(
+          ops.get_collection(ops.GraphKeys.REGULARIZATION_LOSSES), [])
 
   def testCreateOpDefault(self):
     self._testCreateOp(False)
 
   def testCreateOpFused(self):
     self._testCreateOp(True)
+
+  def testCreateOpBetaRegularizer(self):
+    height, width = 3, 3
+    with self.test_session():
+      reg = lambda x: 0.1 * math_ops.reduce_sum(x)
+      images = np.random.uniform(size=(5, height, width, 3)).astype('f')
+      _layers.batch_norm(images, param_regularizers={'beta': reg})
+      self.assertEqual(
+          len(ops.get_collection(ops.GraphKeys.REGULARIZATION_LOSSES)), 1)
+      beta_decay = ops.get_collection(ops.GraphKeys.REGULARIZATION_LOSSES)[0]
+      self.assertEqual(beta_decay.op.name, 'BatchNorm/beta/Regularizer/mul')
+
+  def testCreateOpGammaRegularizer(self):
+    height, width = 3, 3
+    with self.test_session():
+      reg = lambda x: 0.1 * math_ops.reduce_sum(x)
+      images = np.random.uniform(size=(5, height, width, 3)).astype('f')
+      _layers.batch_norm(
+          images, param_regularizers={'gamma': reg}, scale=True)
+      self.assertEqual(
+          len(ops.get_collection(ops.GraphKeys.REGULARIZATION_LOSSES)), 1)
+      gamma_decay = ops.get_collection(ops.GraphKeys.REGULARIZATION_LOSSES)[0]
+      self.assertEqual(gamma_decay.op.name, 'BatchNorm/gamma/Regularizer/mul')
 
   def testCreateVariables(self):
     height, width = 3, 3
@@ -2946,6 +2978,22 @@ class SeparableConv2dTest(test.TestCase):
       images = np.random.rand(5, height, width, 3)
       sess.run(init_op)
       sess.run(net, feed_dict={images_placeholder: images})
+
+
+class ScaleGradientTests(test.TestCase):
+  """Simple tests of the scale_gradient function."""
+
+  def testBasic(self):
+    with self.test_session():
+      x = np.array([42], np.float32)
+      gradient_scale = np.array([2], np.float32)
+
+      x = ops.convert_to_tensor(x)
+      y = layers_lib.scale_gradient(x, gradient_scale)
+
+      np.testing.assert_array_equal(x.eval(), y.eval())
+      g_x, = gradients_impl.gradients(y, [x], [np.array([3], np.float32)])
+      np.testing.assert_array_equal([3 * 2], g_x.eval())
 
 
 class SoftmaxTests(test.TestCase):

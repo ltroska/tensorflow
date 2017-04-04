@@ -50,7 +50,7 @@ bool HasXLAKernel(const Node& node, const DeviceType& jit_device_type) {
 }
 
 // Make sure we don't recurse infinitely on recursive functions.
-const int kMaxRecursionDepth = 5;
+const int kMaxRecursionDepth = 10;
 
 bool IsCompilableCall(const NodeDef& call_def, DeviceType jit_device_type,
                       int depth, FunctionLibraryRuntime* lib_runtime);
@@ -116,6 +116,18 @@ bool IsCompilableCall(const NodeDef& call_def, DeviceType jit_device_type,
   }
   const FunctionBody* fbody = lib_runtime->GetFunctionBody(handle);
   CHECK(fbody);
+  const FunctionDef& fdef = fbody->fdef;
+  bool noinline = false;
+  if (GetNodeAttr(AttrSlice(&fdef.attr()), "_noinline", &noinline).ok() &&
+      noinline) {
+    // The underlying mechanism that calls non-inlined functions uses
+    // LocalExecutor, which interacts poorly with the LocalExecutor used by
+    // tf2xla to translate the TF graph into XLA.  So we avoid this for now.
+    //
+    // TODO(b/36139787): Create a mechanism to set inlining hints.
+    VLOG(2) << "Can't compile noinline function: " << fdef.DebugString();
+    return false;
+  }
 
   for (Node* node : fbody->graph->nodes()) {
     if (node->IsSource() || node->IsSink()) continue;

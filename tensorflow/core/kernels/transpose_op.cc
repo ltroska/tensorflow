@@ -89,7 +89,7 @@ REGISTER_KERNEL_BUILDER(Name("InvertPermutation")
                             .HostMemory("x")
                             .HostMemory("y"),
                         InvertPermutationOp);
-#endif // TENSORFLOW_USE_SYCL
+#endif  // TENSORFLOW_USE_SYCL
 
 // output = TransposeOp(T<any> input, T<int32> perm) takes a tensor
 // of type T and rank N, and a permutation of 0, 1, ..., N-1. It
@@ -115,11 +115,6 @@ void TransposeOp::Compute(OpKernelContext* ctx) {
                                       perm.shape().DebugString()));
   auto Vperm = perm.vec<int32>();
   const int dims = input.dims();
-  static const int kMinDims = 0;
-  static const int kMaxDims = 10;
-  OP_REQUIRES(ctx, kMinDims <= dims && dims <= kMaxDims,
-              errors::Unimplemented("Transposing a tensor of rank ", dims,
-                                    " is not implemented."));
   OP_REQUIRES(ctx, dims == Vperm.size(),
               errors::InvalidArgument(
                   "transpose expects a vector of size ", input.dims(),
@@ -180,6 +175,20 @@ Status TransposeCpuOp::DoTranspose(OpKernelContext* ctx, const Tensor& in,
                                    out);
 }
 
+#ifdef INTEL_MKL
+#define REGISTER(T)                                           \
+  REGISTER_KERNEL_BUILDER(Name("Transpose")                   \
+                              .Device(DEVICE_CPU)             \
+                              .TypeConstraint<T>("T")         \
+                              .TypeConstraint<int32>("Tperm") \
+                              .HostMemory("perm"),            \
+                          MklTransposeCpuOp);
+TF_CALL_ALL_TYPES(REGISTER);
+REGISTER(bfloat16);
+#undef REGISTER
+
+#else  // INTEL_MKL
+
 #define REGISTER(T)                                           \
   REGISTER_KERNEL_BUILDER(Name("Transpose")                   \
                               .Device(DEVICE_CPU)             \
@@ -190,6 +199,7 @@ Status TransposeCpuOp::DoTranspose(OpKernelContext* ctx, const Tensor& in,
 TF_CALL_ALL_TYPES(REGISTER)
 REGISTER(bfloat16);
 #undef REGISTER
+#endif  // INTEL_MKL
 
 #if GOOGLE_CUDA
 Status TransposeGpuOp::DoTranspose(OpKernelContext* ctx, const Tensor& in,

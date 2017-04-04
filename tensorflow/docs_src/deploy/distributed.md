@@ -2,7 +2,7 @@
 
 This document shows how to create a cluster of TensorFlow servers, and how to
 distribute a computation graph across that cluster. We assume that you are
-familiar with the @{$get_started$basic concepts} of
+familiar with the @{$get_started/get_started$basic concepts} of
 writing TensorFlow programs.
 
 ## Hello distributed TensorFlow!
@@ -25,6 +25,12 @@ The
 method creates a single-process cluster, with an in-process server.
 
 ## Create a cluster
+
+<div class="video-wrapper">
+  <iframe class="devsite-embedded-youtube-video" data-video-id="la_M6bCV91M"
+          data-autohide="1" data-showinfo="0" frameborder="0" allowfullscreen>
+  </iframe>
+</div>
 
 A TensorFlow "cluster" is a set of "tasks" that participate in the distributed
 execution of a TensorFlow graph. Each task is associated with a TensorFlow

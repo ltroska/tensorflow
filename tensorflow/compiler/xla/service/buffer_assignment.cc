@@ -212,6 +212,13 @@ StatusOr<BufferAllocation::Slice> BufferAssignment::GetUniqueTopLevelSlice(
   return GetUniqueSlice(instruction, /*index=*/{});
 }
 
+bool BufferAssignment::SharesSliceAtIndex(
+    const HloInstruction* hlo_a, const ShapeIndex& shape_index_a,
+    const HloInstruction* hlo_b, const ShapeIndex& shape_index_b) const {
+  return GetUniqueSlice(hlo_a, shape_index_a).ConsumeValueOrDie() ==
+         GetUniqueSlice(hlo_b, shape_index_b).ConsumeValueOrDie();
+}
+
 StatusOr<BufferAllocation::Slice>
 BufferAssignment::GetUniqueTopLevelOutputSlice() const {
   return GetUniqueTopLevelSlice(
@@ -425,7 +432,8 @@ Status GatherComputationsByAllocationType(
     }
 
     for (auto& instruction : computation->instructions()) {
-      for (auto* subcomputation : instruction->MakeCalledComputationsSet()) {
+      for (HloComputation* subcomputation :
+           instruction->called_computations()) {
         switch (instruction->opcode()) {
           case HloOpcode::kCall:
           case HloOpcode::kWhile:

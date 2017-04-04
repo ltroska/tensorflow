@@ -142,6 +142,9 @@ tf_hpx_library(
 tf_hpx_library(
   name = "hpx_serialization",
   hdrs = ["distributed_runtime/hpx_tensorflow_serialization.h"],
+  deps = [
+                  "@grpc//:grpc++_unsecure",
+  ]
 )
 
 

@@ -40,7 +40,9 @@ See @{$python/contrib.rnn} guide.
 @@CoupledInputForgetGateLSTMCell
 @@TimeFreqLSTMCell
 @@GridLSTMCell
+@@BidirectionalGridLSTMCell
 @@NASCell
+@@PhasedLSTMCell
 
 ### RNNCell wrappers
 @@AttentionCellWrapper

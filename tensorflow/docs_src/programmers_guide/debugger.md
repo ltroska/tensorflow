@@ -41,6 +41,8 @@ the `--debug` flag is provided:
 
 ```python
 # Let your BUILD target depend on "//tensorflow/python/debug:debug_py"
+# (You don't need to worry about the BUILD dependency if you are using a pip
+#  install of open-source TensorFlow.)
 from tensorflow.python import debug as tf_debug
 
 sess = tf_debug.LocalCLIDebugWrapperSession(sess)
@@ -244,18 +246,22 @@ tfdbg> ni -t cross_entropy/Log
 The `-t` flag is used by default, if you use the clickable "node_info" menu item
 at the top of the screen.
 
-From the traceback, you can see that the op is constructed at line 109 of
+From the traceback, you can see that the op is constructed around lines 105-106
+of
 [`debug_mnist.py`](https://www.tensorflow.org/code/tensorflow/python/debug/examples/debug_mnist.py):
 
 ```python
 diff = y_ * tf.log(y)
 ```
 
-TIP: tfdbg lets you view a Python source file with its lines annotated with
+***tfdbg** has a feature that makes it ease to trace Tensors and ops back to
+lines in Python source files. It can annotate lines of a Python file with
 the ops or Tensors created by them. To use this feature,
 simply click the underlined line numbers in the stack trace output of the
 `ni -t <op_name>` commands, or use the `ps` (or `print_source`) command such as:
-`ps /path/to/source.py`
+`ps /path/to/source.py`. See the screenshot below for an example of `ps` output:
+
+![tfdbg run-end UI: annotated Python source file](../images/tfdbg_screenshot_run_end_annotated_source.png)
 
 Apply a value clipping on the input to @{tf.log}
 to resolve this problem:
@@ -314,7 +320,7 @@ inspect the data in the dump directory on the shared storage by using the
 
 ```none
 python -m tensorflow.python.debug.cli.offline_analyzer \
-    --dump_dir=/cns/is-d/home/somebody/tfdbg_dumps_1
+    --dump_dir=/shared/storage/location/tfdbg_dumps_1
 ```
 
 The `Session` wrapper `DumpingDebugWrapperSession` offers an easier and more
@@ -323,10 +329,12 @@ To use it, simply do:
 
 ```python
 # Let your BUILD target depend on "//tensorflow/python/debug:debug_py
+# (You don't need to worry about the BUILD dependency if you are using a pip
+#  install of open-source TensorFlow.)
 from tensorflow.python.debug import debug_utils
 
 sess = tf_debug.DumpingDebugWrapperSession(
-    sess, "/cns/is-d/home/somebody/tfdbg_dumps_1/", watch_fn=my_watch_fn)
+    sess, "/shared/storage/location/tfdbg_dumps_1/", watch_fn=my_watch_fn)
 ```
 
 `watch_fn=my_watch_fn` is a `Callable` that allows you to configure what
@@ -345,6 +353,9 @@ for more details.
 
 *   Navigation through command history using the Up and Down arrow keys.
     Prefix-based navigation is also supported.
+*   Navigation through history of screen outputs using the `prev` and `next`
+    commands or by clicking the underlined `<--` and `-->` links near the top
+    of the screen.
 *   Tab completion of commands and some command arguments.
 *   Write screen output to file by using bash-style redirection. For example:
 
@@ -396,6 +407,39 @@ python -m tensorflow.python.debug.examples.debug_errors \
     --error uninitialized_variable --debug
 ```
 
+**Q**: _The model I am debugging is very large. The data dumped by tfdbg
+fills up the free space of my disk. What can I do?_
+
+**A**:
+For large models, i.e., models with many intermediate tensors, large sizes in
+individual intermediate tensors and/or many iterations in any `tf.while_loop`s
+that the graph contains, this kind of disk space issue can happen.
+
+There are three possible workarounds or solutions:
+
+1. The constructors of `LocalCLIDebugWrapperSession` and `LocalCLIDebugHook`
+   provide a keyword argument, `dump_root`, with which you can specify the path
+   to which **tfdbg** dumps the debug data. For example:
+
+   ``` python
+   # For LocalCLIDebugWrapperSession
+   sess = tf_debug.LocalCLIDebugWrapperSession(dump_root="/with/lots/of/space")
+
+   # For LocalCLIDebugHook
+   hooks = [tf_debug.LocalCLIDebugHook(dump_root="/with/lots/of/space")]
+   ```
+   Make sure that the directory pointed to by dump_root is empty or nonexistent.
+   **tfdbg** cleans up the dump directories before exiting.
+2. Reduce the batch size used during the runs.
+3. Use the filtering options of **tfdbg**'s `run` command to watch only specific
+   nodes in the graph. For example:
+
+   ```
+   tfdbg> run --node_name_filter .*hidden.*
+   tfdbg> run --op_type_filter Variable.*
+   tfdbg> run --tensor_dtype_filter int.*
+   ```
+
 **Q**: _Why can't I select text in the tfdbg CLI?_
 
 **A**: This is because the tfdbg CLI enables mouse events in the terminal by
@@ -403,3 +447,10 @@ python -m tensorflow.python.debug.examples.debug_errors \
        overrides default terminal interactions, including text selection. You
        can re-enable text selection by using the command `mouse off` or
        `m off`.
+
+**Q**: _What are the platform-specific system requirements of **tfdbg** CLI in open-source TensorFlow_?
+
+**A**: On Mac OS X, the `ncurses` library is required. It can be installed with
+`brew install homebrew/dupes/ncurses`. On Windows, the `pyreadline` library is
+required. If you are using Anaconda3, you can install it with a command such as
+`"C:\Program Files\Anaconda3\Scripts\pip.exe" install pyreadline`.

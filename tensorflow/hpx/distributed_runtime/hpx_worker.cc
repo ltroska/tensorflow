@@ -14,7 +14,7 @@ HPXWorker::HPXWorker(global_runtime* rt,
     , id_(id)
 {
   MaybeRunAsHPXThread(
-      [this, worker_env]() {
+      [this, worker_env, basename]() {
         client_ = hpx::id_type(
             hpx::components::server::construct<
                 hpx::components::component<server::HPXWorkerServer> >(
@@ -22,6 +22,8 @@ HPXWorker::HPXWorker(global_runtime* rt,
             hpx::id_type::managed);
         hpx::register_with_basename(basename_, client_.get_id(), 0);
         hpx::register_with_basename("/all/", client_.get_id(), id_);
+        
+        client_.SetWorkerName(basename);
       },
       "HPXWorker::HPXWorker(3)");
 }
@@ -89,6 +91,17 @@ void HPXWorker::GetStatusAsync(const GetStatusRequest* request,
              "GetStatusAsync",
              request,
              response);
+}
+
+void HPXWorker::CreateWorkerSessionAsync(
+      const CreateWorkerSessionRequest* request,
+      CreateWorkerSessionResponse* response, StatusCallback done)
+{
+  CallAction(&HPXWorkerClient::CreateWorkerSessionAsync,
+           std::move(done),
+           "CreateWorkerSessionAsync",
+           request,
+           response);
 }
 
 void HPXWorker::RegisterGraphAsync(const RegisterGraphRequest* request,

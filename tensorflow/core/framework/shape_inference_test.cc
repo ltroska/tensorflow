@@ -134,6 +134,7 @@ TEST_F(ShapeInferenceTest, Run) {
       ShapeHandle h;
       TF_RETURN_IF_ERROR(c->WithRankAtMost(c->input(0), 6, &h));
       c->set_output(0, c->input(0));
+      c->set_output(1, c->input(0));
       return Status::OK();
     };
     TF_ASSERT_OK(c.Run(fn));
@@ -144,6 +145,7 @@ TEST_F(ShapeInferenceTest, Run) {
       ShapeHandle h;
       TF_RETURN_IF_ERROR(c->WithRankAtMost(c->input(0), 0, &h));
       c->set_output(0, c->input(0));
+      c->set_output(1, c->input(0));
       return Status::OK();
     };
     Status s = c.Run(fn);
@@ -920,6 +922,39 @@ TEST_F(ShapeInferenceTest, MakeShapeFromShapeTensor) {
     EXPECT_EQ("Shape must be rank 1 but is rank 2",
               c.MakeShapeFromShapeTensor(0, &out).error_message());
   }
+}
+
+TEST_F(ShapeInferenceTest, MakeShapeFromPartialTensorShape) {
+  NodeDef def;
+  std::vector<ShapeHandle> empty;
+  InferenceContext c(kVersion, &def, MakeOpDef(0, 2), empty, {}, {}, {}, {});
+
+  // With an unknown rank.
+  ShapeHandle out;
+  TF_ASSERT_OK(c.MakeShapeFromPartialTensorShape(PartialTensorShape(), &out));
+  EXPECT_EQ("?", c.DebugString(out));
+
+  // With a known rank.
+  TF_ASSERT_OK(
+      c.MakeShapeFromPartialTensorShape(PartialTensorShape({0}), &out));
+  EXPECT_EQ("[0]", c.DebugString(out));
+  TF_ASSERT_OK(c.MakeShapeFromPartialTensorShape(
+      PartialTensorShape({0, -1, 1000}), &out));
+  EXPECT_EQ("[0,?,1000]", c.DebugString(out));
+}
+
+TEST_F(ShapeInferenceTest, MakeShapeFromTensorShape) {
+  NodeDef def;
+  std::vector<ShapeHandle> empty;
+  InferenceContext c(kVersion, &def, MakeOpDef(0, 2), empty, {}, {}, {}, {});
+
+  ShapeHandle out;
+  TF_ASSERT_OK(c.MakeShapeFromTensorShape(TensorShape(), &out));
+  EXPECT_EQ("[]", c.DebugString(out));
+  TF_ASSERT_OK(c.MakeShapeFromTensorShape(TensorShape({0}), &out));
+  EXPECT_EQ("[0]", c.DebugString(out));
+  TF_ASSERT_OK(c.MakeShapeFromTensorShape(TensorShape({0, 7, 1000}), &out));
+  EXPECT_EQ("[0,7,1000]", c.DebugString(out));
 }
 
 TEST_F(ShapeInferenceTest, MakeShapeFromShapeProto) {

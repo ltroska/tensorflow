@@ -261,7 +261,7 @@ def streaming_false_negatives(predictions, labels, weights=None,
                               metrics_collections=None,
                               updates_collections=None,
                               name=None):
-  """Computes the total number of false positives.
+  """Computes the total number of false negatives.
 
   If `weights` is `None`, weights default to 1. Use weights of 0 to mask values.
 
@@ -356,7 +356,7 @@ def streaming_mean(values, weights=None, metrics_collections=None,
     mean: A `Tensor` representing the current mean, the value of `total` divided
       by `count`.
     update_op: An operation that increments the `total` and `count` variables
-      appropriately and whose value matches `mean_value`.
+      appropriately and whose value matches `mean`.
 
   Raises:
     ValueError: If `weights` is not `None` and its shape doesn't match `values`,
@@ -403,7 +403,7 @@ def streaming_mean_tensor(values, weights=None, metrics_collections=None,
     mean: A float `Tensor` representing the current mean, the value of `total`
       divided by `count`.
     update_op: An operation that increments the `total` and `count` variables
-      appropriately and whose value matches `mean_value`.
+      appropriately and whose value matches `mean`.
 
   Raises:
     ValueError: If `weights` is not `None` and its shape doesn't match `values`,
@@ -1879,11 +1879,11 @@ def streaming_pearson_correlation(predictions,
         math_ops.multiply(math_ops.sqrt(var_predictions),
                           math_ops.sqrt(var_labels)),
         'pearson_r')
-    with ops.control_dependencies(
-        [update_cov, update_var_predictions, update_var_labels]):
-      update_op = _safe_div(update_cov, math_ops.multiply(
-          math_ops.sqrt(update_var_predictions),
-          math_ops.sqrt(update_var_labels)), 'update_op')
+    update_op = _safe_div(
+        update_cov,
+        math_ops.multiply(math_ops.sqrt(update_var_predictions),
+                          math_ops.sqrt(update_var_labels)),
+        'update_op')
 
   if metrics_collections:
     ops.add_to_collections(metrics_collections, pearson_r)

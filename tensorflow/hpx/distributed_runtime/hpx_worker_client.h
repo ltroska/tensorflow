@@ -20,11 +20,17 @@ struct HPXWorkerClient
 
   HPXWorkerClient(hpx::id_type&& id);
 
-  std::string GetWorkerName() const;
+  std::string GetWorkerName() const;  
+  
+  void SetWorkerName(std::string const& name);
 
   void GetStatusAsync(const GetStatusRequest* request,
                       GetStatusResponse* response,
                       StatusCallback done);
+
+  void CreateWorkerSessionAsync(const CreateWorkerSessionRequest* request,
+                                CreateWorkerSessionResponse* response,
+                                StatusCallback done);
 
   void RegisterGraphAsync(const RegisterGraphRequest* request,
                           RegisterGraphResponse* response,

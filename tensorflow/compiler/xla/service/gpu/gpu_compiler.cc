@@ -44,12 +44,14 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/gpu/stream_assignment.h"
 #include "tensorflow/compiler/xla/service/gpu/thunk_schedule.h"
 #include "tensorflow/compiler/xla/service/hlo_computation.h"
+#include "tensorflow/compiler/xla/service/hlo_constant_folding.h"
 #include "tensorflow/compiler/xla/service/hlo_cse.h"
 #include "tensorflow/compiler/xla/service/hlo_dce.h"
 #include "tensorflow/compiler/xla/service/hlo_instruction.h"
 #include "tensorflow/compiler/xla/service/hlo_pass_fix.h"
 #include "tensorflow/compiler/xla/service/hlo_pass_pipeline.h"
 #include "tensorflow/compiler/xla/service/hlo_subcomputation_unification.h"
+#include "tensorflow/compiler/xla/service/hlo_verifier.h"
 #include "tensorflow/compiler/xla/service/llvm_ir/llvm_util.h"
 #include "tensorflow/compiler/xla/service/reshape_mover.h"
 #include "tensorflow/compiler/xla/service/transpose_folding.h"
@@ -120,6 +122,7 @@ tensorflow::Status OptimizeHloModule(HloModule* hlo_module,
                                      const se::DeviceDescription& device_desc) {
   {
     HloPassPipeline pipeline("optimization", dump_hlo);
+    pipeline.AddInvariantChecker<HloVerifier>();
     {
       auto& pass = pipeline.AddPass<HloPassFix<HloPassPipeline>>(
           "simplification", dump_hlo);
@@ -127,6 +130,7 @@ tensorflow::Status OptimizeHloModule(HloModule* hlo_module,
           /*is_layout_sensitive=*/false,
           [](const Shape&, const Shape&) { return false; });
       pass.AddPass<ReshapeMover>();
+      pass.AddPass<HloConstantFolding>();
     }
     pipeline.AddPass<ConvolutionFolding>();
     pipeline.AddPass<TransposeFolding>(ImplementedAsGemm);
@@ -155,6 +159,7 @@ tensorflow::Status PrepareHloModuleForIrEmitting(
   // (b/27180329). Therefore, in that case, we set the output to be a copy of
   // the parameter.
   HloPassPipeline pipeline("GPU-ir-emit-prepare", dump_hlo);
+  pipeline.AddInvariantChecker<HloVerifier>();
   pipeline.AddPass<PadInsertion>();
   pipeline.AddPass<GpuLayoutAssignment>(
       module_config->mutable_entry_computation_layout());

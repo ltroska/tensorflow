@@ -18,6 +18,7 @@ namespace server
                                       StatusCallback done)
   {
     const int64 step_id = request->step_id();
+    WorkerSession* session = env_->session_mgr->WorkerSessionForStepId(step_id);
     const string& key = request->rendezvous_key();
     // TRACEPRINTF("RecvTensor: %lld %s", step_id, key.c_str());
     Rendezvous::ParsedKey parsed;
@@ -37,7 +38,7 @@ namespace server
     // of execution of the callback lambda body below, an RPC
     // cancellation should abort the rendezvous.
     opts->SetCancelCallback([this, step_id]() { AbortStep(step_id); });
-    env_->rendezvous_mgr->RecvLocalAsync(
+    session->rendezvous_mgr->RecvLocalAsync(
         step_id,
         parsed,
         [opts, response, done, src_dev](const Status& status,
@@ -78,7 +79,12 @@ namespace server
 
   std::string HPXWorkerServer::GetWorkerName() const
   {
-    return worker_env_->worker_name;
+    return name_;
+  }  
+  
+  void HPXWorkerServer::SetWorkerName(std::string const& name)
+  {
+    name_ = name;
   }
 
   std::pair<Status, GetStatusResponse>
@@ -90,7 +96,21 @@ namespace server
 
     return std::make_pair(std::move(s), std::move(response));
   }
-
+  
+  std::pair<Status, CreateWorkerSessionResponse>
+  HPXWorkerServer::CreateWorkerSession(CreateWorkerSessionRequest const& request)
+  {
+    CreateWorkerSessionResponse response;
+    
+    hpx::lcos::local::promise<Status> p;
+    auto f = p.get_future();
+    auto done = [&p](Status const& s) {p.set_value(s);}; 
+    
+    worker_->CreateWorkerSessionAsync(&request, &response, std::move(done));
+    
+    return std::make_pair(std::move(f.get()), std::move(response));
+  }
+  
   std::pair<Status, RegisterGraphResponse>
   HPXWorkerServer::RegisterGraph(RegisterGraphRequest const& request)
   {
@@ -213,8 +233,12 @@ HPX_REGISTER_COMPONENT_MODULE();
 HPX_REGISTER_COMPONENT(hpx_worker_server_type, hpx_worker_server_component);
 HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::GetWorkerNameAction,
                     HPXWorkerServerGetWorkerNameAction);
+HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::SetWorkerNameAction,
+                    HPXWorkerServerSetWorkerNameAction);
 HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::GetStatusAction,
                     HPXWorkerServerGetStatusAction);
+HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::CreateWorkerSessionAction,
+                    HPXWorkerServerCreateWorkerSessionAction);
 HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::RegisterGraphAction,
                     HPXWorkerServerRegisterGraphAction);
 HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::DeregisterGraphAction,

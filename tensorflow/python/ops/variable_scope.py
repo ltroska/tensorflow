@@ -683,6 +683,9 @@ class _VariableStore(object):
         init_val = initializer
         variable_dtype = None
       else:
+        # Instantiate initializer if provided initializer is a type object.
+        if isinstance(initializer, type(init_ops.Initializer)):
+          initializer = initializer(dtype=dtype)
         init_val = lambda: initializer(  # pylint: disable=g-long-lambda
             shape.as_list(), dtype=dtype, partition_info=partition_info)
         variable_dtype = dtype.base_dtype
@@ -881,6 +884,19 @@ class VariableScope(object):
     """Set custom getter for this scope."""
     self._custom_getter = custom_getter
 
+  def get_collection(self, name):
+    """Get this scope's variables."""
+    scope = self._name + "/" if self._name else ""
+    return ops.get_collection(name, scope)
+
+  def trainable_variables(self):
+    """Get this scope's trainable variables."""
+    return self.get_collection(ops.GraphKeys.TRAINABLE_VARIABLES)
+
+  def global_variables(self):
+    """Get this scope's global variables."""
+    return self.get_collection(ops.GraphKeys.GLOBAL_VARIABLES)
+
   def get_variable(self,
                    var_store,
                    name,
@@ -888,6 +904,7 @@ class VariableScope(object):
                    dtype=None,
                    initializer=None,
                    regularizer=None,
+                   reuse=None,
                    trainable=True,
                    collections=None,
                    caching_device=None,
@@ -904,6 +921,8 @@ class VariableScope(object):
       partitioner = self._partitioner
     if custom_getter is None:
       custom_getter = self._custom_getter
+    if reuse is None:
+      reuse = self._reuse
 
     full_name = self.name + "/" + name if self.name else name
     # Variable names only depend on variable_scope (full_name here),
@@ -926,7 +945,7 @@ class VariableScope(object):
 
       return var_store.get_variable(
           full_name, shape=shape, dtype=dtype, initializer=initializer,
-          regularizer=regularizer, reuse=self.reuse, trainable=trainable,
+          regularizer=regularizer, reuse=reuse, trainable=trainable,
           collections=collections, caching_device=caching_device,
           partitioner=partitioner, validate_shape=validate_shape,
           use_resource=use_resource, custom_getter=custom_getter)
@@ -1113,7 +1132,7 @@ get_variable.__doc__ = get_variable_or_local_docstring % (
     "Gets an existing variable with these parameters or create a new one.",
     "",
     "trainable: If `True` also add the variable to the graph collection\n"
-    "    `GraphKeys.TRAINABLE_VARIABLES` (see `tf.Variable`).\n",
+    "    `GraphKeys.TRAINABLE_VARIABLES` (see `tf.Variable`).\n  ",
     "GraphKeys.GLOBAL_VARIABLES")
 
 

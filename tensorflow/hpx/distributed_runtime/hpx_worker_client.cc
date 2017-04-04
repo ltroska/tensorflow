@@ -18,11 +18,26 @@ std::string HPXWorkerClient::GetWorkerName() const
   return act(get_id());
 }
 
+void HPXWorkerClient::SetWorkerName(std::string const& name)
+{
+  server::HPXWorkerServer::SetWorkerNameAction act;
+  act(get_id(), name);
+}
+
 void HPXWorkerClient::GetStatusAsync(const GetStatusRequest* request,
                                      GetStatusResponse* response,
                                      StatusCallback done)
 {
   server::HPXWorkerServer::GetStatusAction act;
+  AsyncCallAndAttachCallback(
+      std::move(act), request, response, std::move(done));
+}
+
+void HPXWorkerClient::CreateWorkerSessionAsync(
+      const CreateWorkerSessionRequest* request,
+      CreateWorkerSessionResponse* response, StatusCallback done)
+{
+  server::HPXWorkerServer::CreateWorkerSessionAction act;
   AsyncCallAndAttachCallback(
       std::move(act), request, response, std::move(done));
 }

@@ -135,6 +135,9 @@ class TF_ManagedBuffer : public TensorBuffer {
     proto->set_requested_bytes(rb);
     proto->set_allocator_name(tensorflow::cpu_allocator()->Name());
   }
+
+  // Prevents input forwarding from mutating this buffer.
+  bool OwnsMemory() const override { return false; }
 };
 
 void* allocate_tensor(const char* operation, size_t len) {
@@ -1704,7 +1707,7 @@ void TF_ImportGraphDefOptionsAddInputMapping(TF_ImportGraphDefOptions* opts,
 void TF_ImportGraphDefOptionsRemapControlDependency(
     TF_ImportGraphDefOptions* opts, const char* src_name, TF_Operation* dst) {
   opts->opts.input_map[TensorId(src_name, tensorflow::Graph::kControlSlot)] =
-    TensorId(dst->node.name(), tensorflow::Graph::kControlSlot);
+      TensorId(dst->node.name(), tensorflow::Graph::kControlSlot);
 }
 
 extern void TF_ImportGraphDefOptionsAddControlDependency(

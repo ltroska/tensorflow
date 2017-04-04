@@ -27,6 +27,7 @@ endif(tensorflow_BUILD_ALL_KERNELS)
 if(tensorflow_BUILD_CONTRIB_KERNELS)
   set(tf_contrib_kernels_srcs
       "${tensorflow_source_dir}/tensorflow/contrib/factorization/kernels/clustering_ops.cc"
+      "${tensorflow_source_dir}/tensorflow/contrib/factorization/kernels/masked_matmul_ops.cc"
       "${tensorflow_source_dir}/tensorflow/contrib/factorization/kernels/wals_solver_ops.cc"
       "${tensorflow_source_dir}/tensorflow/contrib/factorization/ops/clustering_ops.cc"
       "${tensorflow_source_dir}/tensorflow/contrib/factorization/ops/factorization_ops.cc"
@@ -36,6 +37,9 @@ if(tensorflow_BUILD_CONTRIB_KERNELS)
       "${tensorflow_source_dir}/tensorflow/contrib/layers/kernels/sparse_feature_cross_kernel.cc"
       "${tensorflow_source_dir}/tensorflow/contrib/layers/ops/bucketization_op.cc"
       "${tensorflow_source_dir}/tensorflow/contrib/layers/ops/sparse_feature_cross_op.cc"
+      "${tensorflow_source_dir}/tensorflow/contrib/nccl/kernels/nccl_manager.cc"
+      "${tensorflow_source_dir}/tensorflow/contrib/nccl/kernels/nccl_ops.cc"
+      "${tensorflow_source_dir}/tensorflow/contrib/nccl/ops/nccl_ops.cc"
       "${tensorflow_source_dir}/tensorflow/contrib/rnn/kernels/blas_gemm.cc"
       "${tensorflow_source_dir}/tensorflow/contrib/rnn/kernels/gru_ops.cc"
       "${tensorflow_source_dir}/tensorflow/contrib/rnn/kernels/lstm_ops.cc"
@@ -68,8 +72,8 @@ endif(tensorflow_BUILD_CONTRIB_KERNELS)
 if(NOT tensorflow_ENABLE_SSL_SUPPORT)
   # Cloud libraries require boringssl.
   file(GLOB tf_core_kernels_cloud_srcs
-      "${tensorflow_source_dir}/tensorflow/core/kernels/cloud/*.h"
-      "${tensorflow_source_dir}/tensorflow/core/kernels/cloud/*.cc"
+      "${tensorflow_source_dir}/tensorflow/contrib/cloud/kernels/*.h"
+      "${tensorflow_source_dir}/tensorflow/contrib/cloud/kernels/*.cc"
   )
 list(REMOVE_ITEM tf_core_kernels_srcs ${tf_core_kernels_cloud_srcs})
 endif()
@@ -92,6 +96,12 @@ if(WIN32)
       "${tensorflow_source_dir}/tensorflow/core/kernels/meta_support.*"
       "${tensorflow_source_dir}/tensorflow/core/kernels/*quantiz*.h"
       "${tensorflow_source_dir}/tensorflow/core/kernels/*quantiz*.cc"
+      # no in tensorflow.dll - comes from .so
+      "${tensorflow_source_dir}/tensorflow/contrib/rnn/kernels/blas_gemm.cc"
+      "${tensorflow_source_dir}/tensorflow/contrib/rnn/kernels/gru_ops.cc"
+      "${tensorflow_source_dir}/tensorflow/contrib/rnn/kernels/lstm_ops.cc"
+      "${tensorflow_source_dir}/tensorflow/contrib/rnn/ops/gru_ops.cc"
+      "${tensorflow_source_dir}/tensorflow/contrib/rnn/ops/lstm_ops.cc"
   )
   list(REMOVE_ITEM tf_core_kernels_srcs ${tf_core_kernels_windows_exclude_srcs})
 endif(WIN32)

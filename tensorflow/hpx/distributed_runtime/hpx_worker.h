@@ -36,7 +36,11 @@ struct HPXWorker : public WorkerInterface
   void GetStatusAsync(const GetStatusRequest* request,
                       GetStatusResponse* response,
                       StatusCallback done);
-
+                      
+  void CreateWorkerSessionAsync(
+      const CreateWorkerSessionRequest* request,
+      CreateWorkerSessionResponse* response, StatusCallback done);
+      
   void RegisterGraphAsync(const RegisterGraphRequest* request,
                           RegisterGraphResponse* response,
                           StatusCallback done);

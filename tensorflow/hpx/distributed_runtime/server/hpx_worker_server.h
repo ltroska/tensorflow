@@ -34,11 +34,22 @@ namespace server
     std::string GetWorkerName() const;
     HPX_DEFINE_COMPONENT_ACTION(HPXWorkerServer,
                                 GetWorkerName,
-                                GetWorkerNameAction);
+                                GetWorkerNameAction);    
+                                
+    void SetWorkerName(std::string const& name);
+    HPX_DEFINE_COMPONENT_ACTION(HPXWorkerServer,
+                                SetWorkerName,
+                                SetWorkerNameAction);
 
     std::pair<Status, GetStatusResponse>
     GetStatus(GetStatusRequest const& request);
     HPX_DEFINE_COMPONENT_ACTION(HPXWorkerServer, GetStatus, GetStatusAction);
+
+    std::pair<Status, CreateWorkerSessionResponse>
+    CreateWorkerSession(CreateWorkerSessionRequest const& request);
+    HPX_DEFINE_COMPONENT_ACTION(HPXWorkerServer,
+                                CreateWorkerSession,
+                                CreateWorkerSessionAction);
 
     std::pair<Status, RegisterGraphResponse>
     RegisterGraph(RegisterGraphRequest const& request);
@@ -81,6 +92,7 @@ namespace server
 private:
     std::unique_ptr<HPXWorkerImpl> worker_;
     WorkerEnv* worker_env_;
+    std::string name_;
   };
 }
 }
@@ -89,8 +101,14 @@ HPX_REGISTER_ACTION_DECLARATION(
     tensorflow::server::HPXWorkerServer::GetWorkerNameAction,
     HPXWorkerServerGetWorkerNameAction);
 HPX_REGISTER_ACTION_DECLARATION(
+    tensorflow::server::HPXWorkerServer::SetWorkerNameAction,
+    HPXWorkerServerSetWorkerNameAction);
+HPX_REGISTER_ACTION_DECLARATION(
     tensorflow::server::HPXWorkerServer::GetStatusAction,
     HPXWorkerServerGetStatusAction);
+HPX_REGISTER_ACTION_DECLARATION(
+    tensorflow::server::HPXWorkerServer::CreateWorkerSessionAction,
+    HPXWorkerServerCreateWorkerSessionAction);
 HPX_REGISTER_ACTION_DECLARATION(
     tensorflow::server::HPXWorkerServer::RegisterGraphAction,
     HPXWorkerServerRegisterGraphAction);

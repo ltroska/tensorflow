@@ -233,7 +233,7 @@ def input_fn(df):
   categorical_cols = {k: tf.SparseTensor(
       indices=[[i, 0] for i in range(df[k].size)],
       values=df[k].values,
-      shape=[df[k].size, 1])
+      dense_shape=[df[k].size, 1])
                       for k in CATEGORICAL_COLUMNS}
   # Merges the two dictionaries into one.
   feature_cols = dict(continuous_cols.items() + categorical_cols.items())
@@ -255,7 +255,7 @@ After reading in the data, you can train and evaluate the model:
 m.fit(input_fn=train_input_fn, steps=200)
 results = m.evaluate(input_fn=eval_input_fn, steps=1)
 for key in sorted(results):
-    print "%s: %s" % (key, results[key])
+    print("%s: %s" % (key, results[key]))
 ```
 
 The first line of the output should be something like `accuracy: 0.84429705`. We

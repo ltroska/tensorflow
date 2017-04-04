@@ -59,9 +59,15 @@ Status CheckSignature(const DataTypeVector& types,
 
 XlaCompiler::XlaCompiler(XlaCompiler::Options options)
     : options_(std::move(options)),
+      initialization_status_(Status::OK()),
       next_step_id_(1),
       device_(new XlaCompilationDevice(SessionOptions(), options_.device_type)),
-      device_mgr_({device_}) {}
+      device_mgr_({device_}) {
+  if (options_.populate_resource_manager) {
+    initialization_status_ =
+        (*options_.populate_resource_manager)(device_->resource_manager());
+  }
+}
 
 XlaCompiler::~XlaCompiler() = default;
 
@@ -76,7 +82,8 @@ int64 XlaCompiler::NextStepId() {
 static void PruneUnreachableNodes(Graph* graph) {
   std::unordered_set<const Node*> nodes;
   for (Node* node : graph->nodes()) {
-    if (node->type_string() == "_Retval") {
+    if (node->type_string() == "_Retval" ||
+        StringPiece(node->type_string()).ends_with("Send")) {
       nodes.insert(node);
     }
   }
@@ -225,8 +232,8 @@ Status BuildArguments(const std::vector<XlaCompiler::Argument>& args,
   parameters.reserve(args.size());
   variables.reserve(args.size());
 
-  for (std::vector<XlaCompiler::Argument>::size_type i = 0;
-       i < args.size(); ++i) {
+  for (std::vector<XlaCompiler::Argument>::size_type i = 0; i < args.size();
+       ++i) {
     XlaContext::Argument& context_arg = (*context_args)[i];
     context_arg.name = args[i].name;
     context_arg.value.constant_value = args[i].constant_value;
@@ -378,8 +385,10 @@ Status XlaCompiler::CompileGraph(string const& name,
                                  CompilationResult* result) {
   VLOG(1) << "Executing graph symbolically to populate ComputationBuilder.";
 
-  xla::ComputationBuilder builder(client(), name);
+  // Report the error here if initialization failed.
+  TF_RETURN_IF_ERROR(initialization_status_);
 
+  xla::ComputationBuilder builder(client(), name);
   XlaContext* context =
       new XlaContext(this, &builder, options_.allow_cpu_custom_calls,
                      options_.resolve_compile_time_constants);

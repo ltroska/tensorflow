@@ -120,6 +120,7 @@ class HloComputation {
   }
 
   const string& name() const { return name_; }
+  void set_name(const string& name) { name_ = name; }
 
   // Return a string representation of the computation.
   string ToString() const;
@@ -127,17 +128,6 @@ class HloComputation {
   const std::list<std::unique_ptr<HloInstruction>>& instructions() const {
     return instructions_;
   }
-
-  // Add a control dependency between the two instructions in this computation
-  // so that the 'predecessor' is visited before the 'successor' during the DFS
-  // traversal of the computation. Returns an error status if either of the
-  // given instructions does not belong to the current computation.
-  //
-  // This is used to enforce an additional ordering requirement that is not
-  // captured by normal data dependencies, such as ordering among Send or Recv
-  // operations to avoid deadlock.
-  Status AddControlDependency(HloInstruction* predecessor,
-                              HloInstruction* successor);
 
   // Compute and return a post-order of the instructions in the computation. In
   // this order, definitions of values always appear before their uses.
@@ -205,6 +195,7 @@ class HloComputation {
   // Set/get the module containing this computation.
   void set_parent(HloModule* module) { parent_ = module; }
   const HloModule* parent() const { return parent_; }
+  HloModule* parent() { return parent_; }
 
   // Visit every node in the computation in DFS post-order with the given
   // visitor. This is similar to calling HloInstruction::Accept on the root of
@@ -245,6 +236,14 @@ class HloComputation {
   HloInstruction* AddInstructionInternal(
       std::unique_ptr<HloInstruction> instruction);
 
+  // Helper for setting the parent of instructions that are added to this
+  // computation.
+  //
+  // Because we clone HLO instructions without knowing what computation they're
+  // destined to be added to, this is required to appropriate set the parent on
+  // fused instruction sequences.
+  void Reparent(HloInstruction* instruction);
+
   // Fuses HLOs in instructions_to_fuse into fusion_instruction.
   //
   // Pre-condition: fusion_instruction's opcode is kFusion.
@@ -259,7 +258,7 @@ class HloComputation {
   // Internal helper to collect unreachable roots.
   std::vector<HloInstruction*> CollectUnreachableRoots() const;
 
-  const string name_;
+  string name_;
   HloInstruction* root_instruction_;
 
   // Module containing this computation.

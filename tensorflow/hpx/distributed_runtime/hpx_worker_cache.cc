@@ -27,7 +27,7 @@ public:
     {
     }
 
-    void ListWorkers(std::vector<string>* workers) override
+    void ListWorkers(std::vector<string>* workers) const override
     {
       HPXWorker::ListWorkers(workers, num_workers_, init_);
     }

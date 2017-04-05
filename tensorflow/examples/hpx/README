@@ -1,0 +1,4 @@
+1)  To build tensorflow with HPX support, follow the steps at https://www.tensorflow.org/install/install_sources
+    and enable HPX support during the configuration process when prompted to.
+
+2)  See the examples on how to use HPX during runtime.

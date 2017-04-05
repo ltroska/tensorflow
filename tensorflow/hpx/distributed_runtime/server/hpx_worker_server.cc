@@ -80,8 +80,8 @@ namespace server
   std::string HPXWorkerServer::GetWorkerName() const
   {
     return name_;
-  }  
-  
+  }
+
   void HPXWorkerServer::SetWorkerName(std::string const& name)
   {
     name_ = name;
@@ -96,21 +96,23 @@ namespace server
 
     return std::make_pair(std::move(s), std::move(response));
   }
-  
+
   std::pair<Status, CreateWorkerSessionResponse>
-  HPXWorkerServer::CreateWorkerSession(CreateWorkerSessionRequest const& request)
+  HPXWorkerServer::CreateWorkerSession(
+      CreateWorkerSessionRequest const& request)
   {
     CreateWorkerSessionResponse response;
-    
+
     hpx::lcos::local::promise<Status> p;
     auto f = p.get_future();
-    auto done = [&p](Status const& s) {p.set_value(s);}; 
-    
+    auto done = [&p](Status const& s) { p.set_value(s); };
+
     worker_->CreateWorkerSessionAsync(&request, &response, std::move(done));
-    
-    return std::make_pair(std::move(f.get()), std::move(response));
+    Status s = f.get();
+
+    return std::make_pair(std::move(s), std::move(response));
   }
-  
+
   std::pair<Status, RegisterGraphResponse>
   HPXWorkerServer::RegisterGraph(RegisterGraphRequest const& request)
   {
@@ -156,7 +158,9 @@ namespace server
     worker_->RunGraphAsync(
         &opts, wrapped_request, wrapped_response, std::move(done));
 
-    return std::make_pair(f.get(), std::move(response));
+    Status s = f.get();
+
+    return std::make_pair(std::move(s), std::move(response));
   }
 
   std::pair<Status, CleanupGraphResponse>
@@ -237,8 +241,9 @@ HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::SetWorkerNameAction,
                     HPXWorkerServerSetWorkerNameAction);
 HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::GetStatusAction,
                     HPXWorkerServerGetStatusAction);
-HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::CreateWorkerSessionAction,
-                    HPXWorkerServerCreateWorkerSessionAction);
+HPX_REGISTER_ACTION(
+    tensorflow::server::HPXWorkerServer::CreateWorkerSessionAction,
+    HPXWorkerServerCreateWorkerSessionAction);
 HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::RegisterGraphAction,
                     HPXWorkerServerRegisterGraphAction);
 HPX_REGISTER_ACTION(tensorflow::server::HPXWorkerServer::DeregisterGraphAction,

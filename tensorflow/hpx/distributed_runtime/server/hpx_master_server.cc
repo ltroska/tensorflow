@@ -13,27 +13,24 @@ namespace server
   HPXMasterServer::CreateSession(CreateSessionRequest const& request)
   {
     CreateSessionResponse response;
-    return std::make_pair(
-        CallMasterSync(&Master::CreateSession, &request, &response),
-        std::move(response));
+    Status s = CallMasterSync(&Master::CreateSession, &request, &response);
+    return std::make_pair(std::move(s), std::move(response));
   }
 
   std::pair<Status, ExtendSessionResponse>
   HPXMasterServer::ExtendSession(ExtendSessionRequest const& request)
   {
     ExtendSessionResponse response;
-    return std::make_pair(
-        CallMasterSync(&Master::ExtendSession, &request, &response),
-        std::move(response));
+    Status s = CallMasterSync(&Master::ExtendSession, &request, &response);
+    return std::make_pair(std::move(s), std::move(response));
   }
 
   std::pair<Status, PartialRunSetupResponse>
   HPXMasterServer::PartialRunSetup(PartialRunSetupRequest const& request)
   {
     PartialRunSetupResponse response;
-    return std::make_pair(
-        CallMasterSync(&Master::PartialRunSetup, &request, &response),
-        std::move(response));
+    Status s = CallMasterSync(&Master::PartialRunSetup, &request, &response);
+    return std::make_pair(std::move(s), std::move(response));
   }
 
   std::pair<Status, RunStepResponse>
@@ -57,17 +54,16 @@ namespace server
 
     (master_->RunStep)(
         &opt, wrapped_request, wrapped_response, std::move(done));
-    return std::make_pair(std::move(fut.get()), std::move(response));
+    Status s = fut.get();
+    return std::make_pair(std::move(s), std::move(response));
   }
 
   std::pair<Status, CloseSessionResponse>
   HPXMasterServer::CloseSession(CloseSessionRequest const& request)
   {
     CloseSessionResponse response;
-
-    return std::make_pair(
-        CallMasterSync(&Master::CloseSession, &request, &response),
-        std::move(response));
+    Status s = CallMasterSync(&Master::CloseSession, &request, &response);
+    return std::make_pair(std::move(s), std::move(response));
   }
 
   std::pair<Status, ListDevicesResponse>
@@ -75,9 +71,8 @@ namespace server
   {
 
     ListDevicesResponse response;
-    return std::make_pair(
-        CallMasterSync(&Master::ListDevices, &request, &response),
-        std::move(response));
+    Status s = CallMasterSync(&Master::ListDevices, &request, &response);
+    return std::make_pair(std::move(s), std::move(response));
   }
 
   std::pair<Status, ResetResponse>
@@ -85,8 +80,8 @@ namespace server
   {
 
     ResetResponse response;
-    return std::make_pair(CallMasterSync(&Master::Reset, &request, &response),
-                          std::move(response));
+    Status s = CallMasterSync(&Master::Reset, &request, &response);
+    return std::make_pair(std::move(s), std::move(response));
   }
 
 } // namespace server

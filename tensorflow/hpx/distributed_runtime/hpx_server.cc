@@ -154,6 +154,7 @@ Status HPXServer::Init()
 
   hpx_env_ = new HPXEnv(env_, &init_);
 
+  worker_env_.use_hpx = StringPiece(server_def_.protocol()).ends_with("hpx");
   master_env_.env = hpx_env_;
   worker_env_.env = hpx_env_;
   hpx_worker_ = HPXWorker(&init_, name_prefix, id, &worker_env_);

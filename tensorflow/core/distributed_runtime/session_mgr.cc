@@ -42,7 +42,7 @@ SessionMgr::SessionMgr(
           default_worker_name, std::move(default_worker_cache),
           std::unique_ptr<RendezvousMgrInterface>(default_rendezvous_mgr),
           std::unique_ptr<GraphMgr>(
-              new GraphMgr(worker_env, default_rendezvous_mgr))),
+              new GraphMgr(worker_env, default_rendezvous_mgr, worker_env->use_hpx))),
       worker_cache_factory_(std::move(worker_cache_factory)) {}
 
 string SessionMgr::WorkerNameFromServerDef(const ServerDef& server_def) {
@@ -62,7 +62,7 @@ Status SessionMgr::CreateSession(const string& session,
       new RpcRendezvousMgr(worker_env_, worker_name, worker_cache));
 
   std::unique_ptr<GraphMgr> graph_mgr(
-      new GraphMgr(worker_env_, rendezvous_mgr.get()));
+      new GraphMgr(worker_env_, rendezvous_mgr.get(), worker_env_->use_hpx));
 
   std::unique_ptr<WorkerSession> worker_session(new WorkerSession(
       worker_name, std::unique_ptr<WorkerCacheInterface>(worker_cache),

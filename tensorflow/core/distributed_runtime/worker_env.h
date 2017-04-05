@@ -44,6 +44,9 @@ struct WorkerEnv {
 
   // A pool of threads for scheduling compute work.
   thread::ThreadPool* compute_pool = nullptr;
+  
+  // Whether to use the HPX executor or not
+  bool use_hpx = false;
 };
 
 }  // end namespace tensorflow
